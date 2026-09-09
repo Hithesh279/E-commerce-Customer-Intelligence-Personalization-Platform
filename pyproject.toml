@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ecommerce-customer-intelligence"
+version = "1.0.0"
+description = "End-to-End E-commerce Customer Intelligence & Personalization Platform"
+authors = [{ name = "Data Science & ML Engineering Team" }]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.22.0",
+    "pandas>=1.4.0",
+    "scipy>=1.8.0",
+    "scikit-learn>=1.1.0",
+    "joblib>=1.1.0",
+    "pyyaml>=6.0",
+    "sqlalchemy>=2.0.0",
+    "fastapi>=0.95.0",
+    "uvicorn>=0.20.0",
+    "pydantic>=1.10.0",
+    "streamlit>=1.20.0",
+    "plotly>=5.10.0",
+    "seaborn>=0.12.0",
+    "matplotlib>=3.5.0",
+    "pytest>=7.0.0",
+    "httpx>=0.24.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --strict-markers"

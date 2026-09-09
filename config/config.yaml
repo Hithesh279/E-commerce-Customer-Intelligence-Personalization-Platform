@@ -1,0 +1,69 @@
+# Central Configuration File for E-commerce Customer Intelligence Platform
+
+project:
+  name: "ecommerce-customer-intelligence"
+  version: "1.0.0"
+  random_seed: 42
+
+data_generation:
+  # Configurable scale. Realistic 200 sample data configuration.
+  num_customers: 200
+  num_products: 50
+  num_transactions: 1000
+  num_reviews: 200
+  num_interactions: 3000
+  date_start: "2023-01-01"
+  date_end: "2024-12-31"
+
+data_quality:
+  # Controlled anomaly rates in raw synthetic data (repaired by cleaning pipeline)
+  missing_rate: 0.015
+  duplicate_rate: 0.005
+  inconsistent_category_casing: true
+
+paths:
+  raw_data_dir: "data/raw"
+  processed_data_dir: "data/processed"
+  powerbi_data_dir: "data/powerbi_export"
+  database_path: "data/ecommerce.db"
+  models_sentiment_dir: "models/sentiment"
+  models_recommendation_dir: "models/recommendation"
+  models_topic_dir: "models/topic"
+  metrics_file: "models/evaluation_metrics.json"
+
+interaction_weights:
+  view: 1.0
+  click: 2.0
+  wishlist: 3.0
+  cart: 4.0
+  purchase: 5.0
+
+recommendation:
+  top_k_default: 10
+  evaluation_k: [5, 10]
+  time_split_test_ratio: 0.20
+  latent_factors: 25
+  hybrid_weights:
+    popularity: 0.45
+    collaborative: 0.35
+    content: 0.20
+
+nlp:
+  sentiment_classes: ["Negative", "Neutral", "Positive"]
+  test_size: 0.20
+  min_df: 3
+  max_features: 5000
+  num_topics: 5
+
+aspects:
+  - "battery"
+  - "camera"
+  - "display"
+  - "performance"
+  - "quality"
+  - "price"
+  - "comfort"
+  - "durability"
+  - "delivery"
+  - "packaging"
+  - "design"

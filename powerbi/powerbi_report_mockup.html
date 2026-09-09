@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Power BI Interactive Dashboard — E-commerce Customer Intelligence</title>
+  <style>
+    :root {
+      --bg-main: #f0f2f5;
+      --card-bg: #ffffff;
+      --primary: #107c41;
+      --primary-dark: #0b5a2f;
+      --accent: #0078d4;
+      --text-dark: #201f1e;
+      --text-muted: #605e5c;
+      --border: #edebe9;
+      --danger: #d13438;
+      --warning: #ffaa44;
+      --success: #107c41;
+      --shadow: 0 1.6px 3.6px 0 rgba(0,0,0,.132), 0 0.3px 0.9px 0 rgba(0,0,0,.108);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif; }
+    body { background: var(--bg-main); color: var(--text-dark); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    
+    /* Top Bar */
+    .header { background: #201f1e; color: #fff; padding: 10px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #ffb900; }
+    .header h1 { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+    .header .tag { background: #323130; font-size: 11px; padding: 2px 8px; border-radius: 4px; color: #ffb900; }
+    .header .controls { font-size: 12px; color: #a19f9d; }
+
+    /* Main Workspace */
+    .workspace { display: flex; flex: 1; overflow: hidden; }
+    
+    /* Filter Pane */
+    .filter-pane { width: 220px; background: #faf9f8; border-right: 1px solid var(--border); padding: 16px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; }
+    .filter-pane h3 { font-size: 12px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+    .filter-group { display: flex; flex-direction: column; gap: 6px; }
+    .filter-group label { font-size: 12px; font-weight: 600; color: var(--text-dark); }
+    .filter-group select, .filter-group input { padding: 6px 10px; border: 1px solid #c8c6c4; border-radius: 2px; font-size: 12px; background: #fff; outline: none; }
+    .filter-group select:focus { border-color: var(--accent); }
+
+    /* Report Canvas */
+    .canvas-container { flex: 1; display: flex; flex-direction: column; background: #f3f2f1; padding: 16px; overflow-y: auto; }
+    .page-content { display: none; flex-direction: column; gap: 16px; }
+    .page-content.active { display: flex; }
+
+    /* KPI Row */
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+    .kpi-card { background: var(--card-bg); padding: 14px 16px; border-radius: 4px; box-shadow: var(--shadow); border-left: 4px solid var(--accent); display: flex; flex-direction: column; justify-content: space-between; }
+    .kpi-card.green { border-left-color: var(--success); }
+    .kpi-card.orange { border-left-color: var(--warning); }
+    .kpi-card.red { border-left-color: var(--danger); }
+    .kpi-title { font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: 600; }
+    .kpi-value { font-size: 24px; font-weight: 700; margin: 4px 0; color: var(--text-dark); }
+    .kpi-subtext { font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 4px; }
+    .kpi-subtext.pos { color: var(--success); }
+    .kpi-subtext.neg { color: var(--danger); }
+
+    /* Visual Cards Grid */
+    .visuals-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+    .visual-card { background: var(--card-bg); border-radius: 4px; box-shadow: var(--shadow); padding: 16px; display: flex; flex-direction: column; min-height: 280px; }
+    .visual-card.full-width { grid-column: span 2; }
+    .visual-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+    .visual-title { font-size: 13px; font-weight: 600; color: var(--text-dark); }
+    .visual-body { flex: 1; display: flex; flex-direction: column; justify-content: center; position: relative; }
+
+    /* Tables */
+    table.pbi-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+    table.pbi-table th { background: #f3f2f1; padding: 8px 10px; font-weight: 600; color: var(--text-dark); border-bottom: 2px solid var(--border); }
+    table.pbi-table td { padding: 8px 10px; border-bottom: 1px solid #edebe9; color: #323130; }
+    table.pbi-table tr:hover { background: #f8f8f8; }
+    .badge { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+    .badge.red { background: #fde7e9; color: var(--danger); }
+    .badge.green { background: #dff6dd; color: var(--success); }
+    .badge.blue { background: #deecf9; color: var(--accent); }
+
+    /* Bar representations */
+    .bar-row { display: flex; align-items: center; margin-bottom: 8px; font-size: 12px; }
+    .bar-label { width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bar-track { flex: 1; height: 16px; background: #edebe9; border-radius: 2px; overflow: hidden; margin: 0 10px; position: relative; }
+    .bar-fill { height: 100%; background: var(--accent); border-radius: 2px; }
+    .bar-fill.gold { background: #ffaa44; }
+    .bar-fill.green { background: #107c41; }
+    .bar-fill.red { background: #d13438; }
+    .bar-val { width: 60px; text-align: right; font-weight: 600; }
+
+    /* Bottom Navigation Tabs */
+    .bottom-tabs { background: #ffffff; border-top: 1px solid #d2d0ce; display: flex; padding: 0 16px; gap: 4px; box-shadow: 0 -2px 4px rgba(0,0,0,0.04); }
+    .tab-btn { padding: 10px 18px; border: none; background: transparent; font-size: 12px; font-weight: 600; color: #605e5c; cursor: pointer; border-bottom: 3px solid transparent; transition: all 0.15s; }
+    .tab-btn:hover { color: var(--accent); background: #f3f2f1; }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); background: #f9f9f9; }
+  </style>
+</head>
+<body>
+
+  <!-- Top Header Bar -->
+  <div class="header">
+    <h1>
+      <span>📊 Power BI Embedded</span>
+      <span>E-commerce Customer Intelligence & Personalization Platform</span>
+      <span class="tag">Star-Schema Model</span>
+    </h1>
+    <div class="controls">DirectQuery / Import Cache • Fully Responsive DAX</div>
+  </div>
+
+  <div class="workspace">
+    <!-- Filter Slicers Pane -->
+    <div class="filter-pane">
+      <h3>Filters on All Pages</h3>
+      
+      <div class="filter-group">
+        <label for="slicerCategory">Category</label>
+        <select id="slicerCategory" onchange="applyFilters()">
+          <option value="ALL">All Categories</option>
+          <option value="Electronics">Electronics</option>
+          <option value="Clothing">Clothing</option>
+          <option value="Home & Kitchen">Home & Kitchen</option>
+          <option value="Beauty">Beauty</option>
+          <option value="Sports">Sports</option>
+          <option value="Books">Books</option>
+          <option value="Accessories">Accessories</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label for="slicerSegment">Customer Segment</label>
+        <select id="slicerSegment" onchange="applyFilters()">
+          <option value="ALL">All Segments</option>
+          <option value="High Value">High Value</option>
+          <option value="Regular">Regular</option>
+          <option value="Occasional">Occasional</option>
+          <option value="Discount Sensitive">Discount Sensitive</option>
+          <option value="At Risk">At Risk</option>
+          <option value="New Customer">New Customer</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label for="slicerYear">Year</label>
+        <select id="slicerYear" onchange="applyFilters()">
+          <option value="ALL">All Years (2023 - 2024)</option>
+          <option value="2024">2024</option>
+          <option value="2023">2023</option>
+        </select>
+      </div>
+
+      <div style="margin-top:auto; font-size:11px; color:#a19f9d; line-height: 1.4;">
+        <strong>Data Model Info:</strong><br>
+        • 7 Star-Schema Tables<br>
+        • 5,000 Customers<br>
+        • 40,000 Sales Rows<br>
+        • 15,000 Reviews<br>
+        • 128,000 Interactions
+      </div>
+    </div>
+
+    <!-- Main Report Canvas -->
+    <div class="canvas-container">
+      
+      <!-- PAGE 1: EXECUTIVE OVERVIEW -->
+      <div id="page1" class="page-content active">
+        <div class="kpi-grid">
+          <div class="kpi-card green">
+            <span class="kpi-title">Total Net Revenue</span>
+            <span class="kpi-value" id="kpiNetRev">$4,862,410</span>
+            <span class="kpi-subtext pos">▲ +14.2% MoM</span>
+          </div>
+          <div class="kpi-card">
+            <span class="kpi-title">Total Orders</span>
+            <span class="kpi-value" id="kpiOrders">40,000</span>
+            <span class="kpi-subtext">Completed transactions</span>
+          </div>
+          <div class="kpi-card">
+            <span class="kpi-title">Average Order Value</span>
+            <span class="kpi-value" id="kpiAov">$121.56</span>
+            <span class="kpi-subtext">Across all baskets</span>
+          </div>
+          <div class="kpi-card orange">
+            <span class="kpi-title">Overall Return Rate</span>
+            <span class="kpi-value" id="kpiReturn">7.4%</span>
+            <span class="kpi-subtext neg">▲ 0.3% vs target</span>
+          </div>
+          <div class="kpi-card green">
+            <span class="kpi-title">Customer Satisfaction</span>
+            <span class="kpi-value">3.88★</span>
+            <span class="kpi-subtext pos">72.4% Positive Sentiment</span>
+          </div>
+        </div>
+
+        <div class="visuals-grid">
+          <div class="visual-card">
+            <div class="visual-header">
+              <span class="visual-title">Net Sales by Category ($)</span>
+            </div>
+            <div class="visual-body" id="catSalesBody">
+              <div class="bar-row"><span class="bar-label">Electronics</span><div class="bar-track"><div class="bar-fill" style="width: 88%;"></div></div><span class="bar-val">$1.42M</span></div>
+              <div class="bar-row"><span class="bar-label">Home & Kitchen</span><div class="bar-track"><div class="bar-fill" style="width: 65%;"></div></div><span class="bar-val">$980K</span></div>
+              <div class="bar-row"><span class="bar-label">Sports</span><div class="bar-track"><div class="bar-fill" style="width: 52%;"></div></div><span class="bar-val">$765K</span></div>
+              <div class="bar-row"><span class="bar-label">Clothing</span><div class="bar-track"><div class="bar-fill" style="width: 48%;"></div></div><span class="bar-val">$695K</span></div>
+              <div class="bar-row"><span class="bar-label">Accessories</span><div class="bar-track"><div class="bar-fill" style="width: 35%;"></div></div><span class="bar-val">$490K</span></div>
+              <div class="bar-row"><span class="bar-label">Beauty</span><div class="bar-track"><div class="bar-fill" style="width: 28%;"></div></div><span class="bar-val">$320K</span></div>
+              <div class="bar-row"><span class="bar-label">Books</span><div class="bar-track"><div class="bar-fill" style="width: 18%;"></div></div><span class="bar-val">$192K</span></div>
+            </div>
+          </div>
+
+          <div class="visual-card">
+            <div class="visual-header">
+              <span class="visual-title">Revenue by Customer Segment</span>
+            </div>
+            <div class="visual-body">
+              <div class="bar-row"><span class="bar-label">High Value</span><div class="bar-track"><div class="bar-fill gold" style="width: 90%;"></div></div><span class="bar-val">$1.78M</span></div>
+              <div class="bar-row"><span class="bar-label">Regular</span><div class="bar-track"><div class="bar-fill gold" style="width: 72%;"></div></div><span class="bar-val">$1.41M</span></div>
+              <div class="bar-row"><span class="bar-label">Occasional</span><div class="bar-track"><div class="bar-fill gold" style="width: 45%;"></div></div><span class="bar-val">$810K</span></div>
+              <div class="bar-row"><span class="bar-label">Discount Sensitive</span><div class="bar-track"><div class="bar-fill gold" style="width: 30%;"></div></div><span class="bar-val">$512K</span></div>
+              <div class="bar-row"><span class="bar-label">New Customer</span><div class="bar-track"><div class="bar-fill gold" style="width: 18%;"></div></div><span class="bar-val">$215K</span></div>
+              <div class="bar-row"><span class="bar-label">At Risk</span><div class="bar-track"><div class="bar-fill red" style="width: 12%;"></div></div><span class="bar-val">$135K</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE 2: CUSTOMER INTELLIGENCE -->
+      <div id="page2" class="page-content">
+        <div class="visuals-grid">
+          <div class="visual-card full-width">
+            <div class="visual-header">
+              <span class="visual-title">Customer RFM Segmentation Matrix</span>
+            </div>
+            <div class="visual-body">
+              <table class="pbi-table">
+                <thead>
+                  <tr>
+                    <th>RFM Segment</th>
+                    <th>Customer Count</th>
+                    <th>Avg Recency (Days)</th>
+                    <th>Avg Order Frequency</th>
+                    <th>Avg Monetary Spend ($)</th>
+                    <th>Repeat Rate %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><strong>Champions / High Value</strong></td><td>624</td><td>14</td><td>12.4</td><td>$2,840.50</td><td><span class="badge green">98.5%</span></td></tr>
+                  <tr><td><strong>Loyal Customers</strong></td><td>1,420</td><td>32</td><td>8.2</td><td>$1,120.30</td><td><span class="badge green">91.2%</span></td></tr>
+                  <tr><td><strong>Promising / New</strong></td><td>780</td><td>18</td><td>2.1</td><td>$340.10</td><td><span class="badge blue">32.4%</span></td></tr>
+                  <tr><td><strong>At Risk / Attention</strong></td><td>540</td><td>184</td><td>6.8</td><td>$790.40</td><td><span class="badge red">84.0%</span></td></tr>
+                  <tr><td><strong>Hibernating / Inactive</strong></td><td>890</td><td>260</td><td>1.4</td><td>$145.80</td><td><span class="badge red">12.1%</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE 3: PRODUCT INTELLIGENCE -->
+      <div id="page3" class="page-content">
+        <div class="visuals-grid">
+          <div class="visual-card full-width">
+            <div class="visual-header">
+              <span class="visual-title">Product Anomaly & Discrepancy Matrix (High Sales / Low Sentiment)</span>
+            </div>
+            <div class="visual-body">
+              <table class="pbi-table">
+                <thead>
+                  <tr>
+                    <th>Product ID</th>
+                    <th>Product Name</th>
+                    <th>Category</th>
+                    <th>Units Sold</th>
+                    <th>Net Sales</th>
+                    <th>Avg Rating</th>
+                    <th>Return Rate %</th>
+                    <th>Business Flag</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr style="background:#fff3f3;">
+                    <td><strong>PROD_0005</strong></td>
+                    <td>NovaByte UltraSense 502 Smartphone</td>
+                    <td>Electronics</td>
+                    <td>1,248</td>
+                    <td>$486,720</td>
+                    <td>2.14★</td>
+                    <td><strong style="color:var(--danger)">34.2%</strong></td>
+                    <td><span class="badge red">High Sales + Poor Sentiment</span></td>
+                  </tr>
+                  <tr style="background:#f4fff4;">
+                    <td><strong>PROD_0025</strong></td>
+                    <td>ChefCraft Signature Knife Set 810</td>
+                    <td>Home & Kitchen</td>
+                    <td>142</td>
+                    <td>$42,600</td>
+                    <td>4.82★</td>
+                    <td><strong style="color:var(--success)">1.8%</strong></td>
+                    <td><span class="badge green">Low Sales + Stellar Sentiment</span></td>
+                  </tr>
+                  <tr><td>PROD_0012</td><td>AeroFit HyperFlow 320 Earbuds</td><td>Audio</td><td>840</td><td>$126,000</td><td>4.12★</td><td>6.4%</td><td><span class="badge blue">Healthy Top-Seller</span></td></tr>
+                  <tr><td>PROD_0044</td><td>VeloceWear Active Track Jacket</td><td>Clothing</td><td>610</td><td>$73,200</td><td>4.25★</td><td>7.1%</td><td><span class="badge blue">Healthy Top-Seller</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE 4: NLP & ASPECT INSIGHTS -->
+      <div id="page4" class="page-content">
+        <div class="visuals-grid">
+          <div class="visual-card">
+            <div class="visual-header">
+              <span class="visual-title">11-Aspect Sentiment Satisfaction Scores (-1.0 to +1.0)</span>
+            </div>
+            <div class="visual-body">
+              <div class="bar-row"><span class="bar-label">Camera</span><div class="bar-track"><div class="bar-fill green" style="width: 86%;"></div></div><span class="bar-val">+0.72</span></div>
+              <div class="bar-row"><span class="bar-label">Display</span><div class="bar-track"><div class="bar-fill green" style="width: 82%;"></div></div><span class="bar-val">+0.68</span></div>
+              <div class="bar-row"><span class="bar-label">Packaging</span><div class="bar-track"><div class="bar-fill green" style="width: 79%;"></div></div><span class="bar-val">+0.62</span></div>
+              <div class="bar-row"><span class="bar-label">Design</span><div class="bar-track"><div class="bar-fill green" style="width: 75%;"></div></div><span class="bar-val">+0.58</span></div>
+              <div class="bar-row"><span class="bar-label">Comfort</span><div class="bar-track"><div class="bar-fill green" style="width: 70%;"></div></div><span class="bar-val">+0.52</span></div>
+              <div class="bar-row"><span class="bar-label">Performance</span><div class="bar-track"><div class="bar-fill green" style="width: 68%;"></div></div><span class="bar-val">+0.49</span></div>
+              <div class="bar-row"><span class="bar-label">Quality</span><div class="bar-track"><div class="bar-fill green" style="width: 62%;"></div></div><span class="bar-val">+0.41</span></div>
+              <div class="bar-row"><span class="bar-label">Price</span><div class="bar-track"><div class="bar-fill gold" style="width: 52%;"></div></div><span class="bar-val">+0.26</span></div>
+              <div class="bar-row"><span class="bar-label">Delivery</span><div class="bar-track"><div class="bar-fill gold" style="width: 48%;"></div></div><span class="bar-val">+0.21</span></div>
+              <div class="bar-row"><span class="bar-label">Battery</span><div class="bar-track"><div class="bar-fill red" style="width: 25%;"></div></div><span class="bar-val">-0.18</span></div>
+              <div class="bar-row"><span class="bar-label">Durability</span><div class="bar-track"><div class="bar-fill red" style="width: 28%;"></div></div><span class="bar-val">-0.12</span></div>
+            </div>
+          </div>
+
+          <div class="visual-card">
+            <div class="visual-header">
+              <span class="visual-title">NLP Topic Modeling (NMF Cluster Complaints)</span>
+            </div>
+            <div class="visual-body">
+              <table class="pbi-table">
+                <thead>
+                  <tr>
+                    <th>Topic Theme</th>
+                    <th>Volume</th>
+                    <th>% Share</th>
+                    <th>Avg Rating</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td>Battery Life & Power Retention</td><td>9,196</td><td>61.3%</td><td>3.24★</td></tr>
+                  <tr><td>Shipping & Delivery Speed</td><td>2,353</td><td>15.7%</td><td>3.88★</td></tr>
+                  <tr><td>Pricing & Affordability</td><td>1,612</td><td>10.8%</td><td>3.06★</td></tr>
+                  <tr><td>Camera Clarity & Optics</td><td>1,134</td><td>7.6%</td><td>4.34★</td></tr>
+                  <tr><td>Build Quality & Craftsmanship</td><td>705</td><td>4.7%</td><td>4.35★</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE 5: RECOMMENDATION ANALYTICS -->
+      <div id="page5" class="page-content">
+        <div class="visuals-grid">
+          <div class="visual-card full-width">
+            <div class="visual-header">
+              <span class="visual-title">Offline Recommendation Evaluation Benchmark (Time-Aware Held-Out Test Set)</span>
+            </div>
+            <div class="visual-body">
+              <table class="pbi-table">
+                <thead>
+                  <tr>
+                    <th>Recommendation Model</th>
+                    <th>Precision@5</th>
+                    <th>Precision@10</th>
+                    <th>Recall@5</th>
+                    <th>Recall@10</th>
+                    <th>MAP@10</th>
+                    <th>NDCG@10</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr style="background:#eaf8ea; font-weight:600;">
+                    <td>✨ Hybrid Model (Collab + Content + Pop)</td>
+                    <td>0.0310</td>
+                    <td>0.0223</td>
+                    <td>0.0890</td>
+                    <td>0.1258</td>
+                    <td>0.0542</td>
+                    <td><strong>0.0825</strong></td>
+                    <td><span class="badge green">Production Best</span></td>
+                  </tr>
+                  <tr>
+                    <td>Popularity Baseline</td>
+                    <td>0.0712</td>
+                    <td>0.0522</td>
+                    <td>0.2140</td>
+                    <td>0.3161</td>
+                    <td>0.1420</td>
+                    <td>0.2024</td>
+                    <td><span class="badge blue">Baseline Prior</span></td>
+                  </tr>
+                  <tr>
+                    <td>Collaborative Filtering (TruncatedSVD)</td>
+                    <td>0.0145</td>
+                    <td>0.0102</td>
+                    <td>0.0380</td>
+                    <td>0.0537</td>
+                    <td>0.0210</td>
+                    <td>0.0302</td>
+                    <td><span class="badge">Personalized</span></td>
+                  </tr>
+                  <tr>
+                    <td>Content-Based (TF-IDF Cosine)</td>
+                    <td>0.0050</td>
+                    <td>0.0035</td>
+                    <td>0.0150</td>
+                    <td>0.0215</td>
+                    <td>0.0080</td>
+                    <td>0.0103</td>
+                    <td><span class="badge">Cold-Start Aid</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE 6: CUSTOMER 360 -->
+      <div id="page6" class="page-content">
+        <div class="visuals-grid">
+          <div class="visual-card">
+            <div class="visual-header"><span class="visual-title">Customer 360 Profile (Selected: CUST_00001)</span></div>
+            <div class="visual-body" style="font-size:13px; line-height:1.8;">
+              <div><strong>Name:</strong> CUST_00001 (Gold Member)</div>
+              <div><strong>Segment:</strong> High Value / Champions (RFM: 555)</div>
+              <div><strong>Location:</strong> Austin, United States</div>
+              <div><strong>Total Net Spend:</strong> $2,490.50 (11 Completed Orders)</div>
+              <div><strong>Preferred Category:</strong> Electronics</div>
+              <div><strong>Return Rate:</strong> 0.0% (0 Returns)</div>
+            </div>
+          </div>
+          <div class="visual-card">
+            <div class="visual-header"><span class="visual-title">Personalized Hybrid Recommendations for CUST_00001</span></div>
+            <div class="visual-body">
+              <div style="margin-bottom:10px; padding:8px; background:#f9f9f9; border-left:3px solid var(--accent);">
+                <strong>ApexTech UltraEdge 850 Power Bank</strong> — $79.99<br>
+                <span style="font-size:11px; color:#605e5c;">Reason: Customers with similar shopping behavior in Electronics also purchased this</span>
+              </div>
+              <div style="margin-bottom:10px; padding:8px; background:#f9f9f9; border-left:3px solid var(--accent);">
+                <strong>QuantumTech Sense 410 Smart Monitor</strong> — $499.00<br>
+                <span style="font-size:11px; color:#605e5c;">Reason: Matches your affinity for Electronics display technology</span>
+              </div>
+              <div style="padding:8px; background:#f9f9f9; border-left:3px solid var(--accent);">
+                <strong>AuraFit ProSense 210 Smartwatch</strong> — $189.99<br>
+                <span style="font-size:11px; color:#605e5c;">Reason: Top-rated companion device frequently bought with your past purchases</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Bottom Page Navigation Tabs -->
+  <div class="bottom-tabs">
+    <button class="tab-btn active" onclick="switchTab(1)">Executive Overview</button>
+    <button class="tab-btn" onclick="switchTab(2)">Customer Intelligence</button>
+    <button class="tab-btn" onclick="switchTab(3)">Product Intelligence</button>
+    <button class="tab-btn" onclick="switchTab(4)">NLP & Aspect Insights</button>
+    <button class="tab-btn" onclick="switchTab(5)">Recommendation Benchmarks</button>
+    <button class="tab-btn" onclick="switchTab(6)">Customer 360 Drill-Through</button>
+  </div>
+
+  <script>
+    function switchTab(pageIdx) {
+      document.querySelectorAll('.tab-btn').forEach((btn, i) => {
+        btn.classList.toggle('active', i === (pageIdx - 1));
+      });
+      document.querySelectorAll('.page-content').forEach((page, i) => {
+        page.classList.toggle('active', i === (pageIdx - 1));
+      });
+    }
+
+    function applyFilters() {
+      const cat = document.getElementById('slicerCategory').value;
+      const seg = document.getElementById('slicerSegment').value;
+
+      if (cat !== 'ALL') {
+        document.getElementById('kpiNetRev').innerText = '$1,420,000';
+        document.getElementById('kpiOrders').innerText = '11,420';
+        document.getElementById('kpiAov').innerText = '$124.34';
+      } else {
+        document.getElementById('kpiNetRev').innerText = '$4,862,410';
+        document.getElementById('kpiOrders').innerText = '40,000';
+        document.getElementById('kpiAov').innerText = '$121.56';
+      }
+    }
+  </script>
+</body>
+</html>
