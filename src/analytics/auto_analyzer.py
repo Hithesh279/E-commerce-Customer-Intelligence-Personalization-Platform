@@ -253,10 +253,10 @@ def analyze_custom_reviews(
         enriched_df["predicted_sentiment"] = "Positive"
         enriched_df["sentiment_confidence"] = 0.80
 
-    # 4. Aspect Extraction on representative sample (up to 2,000 texts)
+    # 4. Aspect Extraction on representative sample (up to 1,000 texts for instant processing)
     aspect_records = []
     aspect_tags_list = []
-    sample_size = min(total_count, 2000)
+    sample_size = min(total_count, 1000)
     process_texts = enriched_df[text_col].head(sample_size).fillna("").astype(str).tolist() if (text_col and text_col in enriched_df.columns) else []
 
     if process_texts:

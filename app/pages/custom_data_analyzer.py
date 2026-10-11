@@ -386,65 +386,90 @@ def render_custom_analyzer_page():
         category_col = None if sel_cat == "None" else sel_cat
         status_col = None if sel_status == "None" else sel_status
 
-    # Data Processing
-    with st.spinner("Executing ML inference and analytics aggregations..."):
-        # Reviews analysis
-        reviews_data = None
-        enriched_df = active_df.copy()
-        if (text_col and text_col in active_df.columns) or (sentiment_col and sentiment_col in active_df.columns) or (rating_col and rating_col in active_df.columns):
-            enriched_df, reviews_data = analyze_custom_reviews(
-                active_df,
-                text_col=text_col,
-                rating_col=rating_col,
-                sentiment_col=sentiment_col,
+    # Data Processing with Intelligent In-Memory Caching
+    analysis_sig = (
+        data_source_label,
+        len(active_df),
+        tuple(active_df.columns),
+        text_col,
+        sentiment_col,
+        rating_col,
+        date_col,
+        revenue_col,
+        customer_col,
+        product_col,
+        category_col,
+        status_col,
+    )
+
+    cached_sig = st.session_state.get("_analyzer_cache_sig")
+    active_ds = st.session_state.get("active_dataset")
+
+    if cached_sig == analysis_sig and active_ds is not None and active_ds.get("enriched_df") is not None:
+        # Re-use already computed ML results and aggregations instantaneously (0ms)
+        enriched_df = active_ds["enriched_df"]
+        reviews_data = active_ds["reviews_data"]
+        txn_data = active_ds["txn_data"]
+        rfm_df = active_ds["rfm_df"]
+        rfm_metrics = active_ds["rfm_metrics"]
+        table_profile = active_ds["table_profile"]
+    else:
+        with st.spinner("Executing ML inference and analytics aggregations..."):
+            # Reviews analysis
+            reviews_data = None
+            enriched_df = active_df.copy()
+            if (text_col and text_col in active_df.columns) or (sentiment_col and sentiment_col in active_df.columns) or (rating_col and rating_col in active_df.columns):
+                enriched_df, reviews_data = analyze_custom_reviews(
+                    active_df,
+                    text_col=text_col,
+                    rating_col=rating_col,
+                    sentiment_col=sentiment_col,
+                )
+
+            # Transactions analysis
+            txn_data = analyze_custom_transactions(
+                enriched_df,
+                date_col=date_col,
+                revenue_col=revenue_col,
+                customer_col=customer_col,
+                category_col=category_col,
+                product_col=product_col,
+                status_col=status_col,
             )
 
-        # Transactions analysis
-        txn_data = analyze_custom_transactions(
-            enriched_df,
-            date_col=date_col,
-            revenue_col=revenue_col,
-            customer_col=customer_col,
-            category_col=category_col,
-            product_col=product_col,
-            status_col=status_col,
-        )
+            # RFM analysis
+            rfm_df, rfm_metrics = None, None
+            if customer_col and (date_col or "lifetime_spend" in [str(c).lower() for c in active_df.columns]):
+                try:
+                    rfm_df, rfm_metrics = calculate_custom_rfm(
+                        enriched_df,
+                        customer_col=customer_col,
+                        date_col=date_col,
+                        revenue_col=revenue_col,
+                    )
+                except Exception as e:
+                    rfm_df, rfm_metrics = None, None
 
-        # RFM analysis
-        rfm_df, rfm_metrics = None, None
-        if customer_col and (date_col or "lifetime_spend" in [str(c).lower() for c in active_df.columns]):
-            try:
-                rfm_df, rfm_metrics = calculate_custom_rfm(
-                    enriched_df,
-                    customer_col=customer_col,
-                    date_col=date_col,
-                    revenue_col=revenue_col,
-                )
-            except Exception as e:
-                rfm_df, rfm_metrics = None, None
+            # Generic profiling
+            table_profile = profile_generic_table(enriched_df)
 
-        # Generic profiling
-        table_profile = profile_generic_table(enriched_df)
+            # Synchronize this dataset globally across all platform pages
+            from app.services.active_dataset_manager import set_active_custom_dataset
+            set_active_custom_dataset(
+                df=active_df,
+                source_label=data_source_label,
+                schema_info=schema_info,
+                txn_data=txn_data,
+                reviews_data=reviews_data,
+                rfm_df=rfm_df,
+                rfm_metrics=rfm_metrics,
+                table_profile=table_profile,
+                enriched_df=enriched_df,
+            )
+            st.session_state["_analyzer_cache_sig"] = analysis_sig
 
-        # Synchronize this dataset globally across all platform pages
-        from app.services.active_dataset_manager import set_active_custom_dataset
-        set_active_custom_dataset(
-            df=active_df,
-            source_label=data_source_label,
-            schema_info=schema_info,
-            txn_data=txn_data,
-            reviews_data=reviews_data,
-            rfm_df=rfm_df,
-            rfm_metrics=rfm_metrics,
-            table_profile=table_profile,
-            enriched_df=enriched_df,
-        )
-
-    from src.analytics.report_generator import (
-        generate_excel_analytical_workbook,
-        generate_executive_html_report,
-        generate_markdown_report,
-    )
+    from app.services.active_dataset_manager import generate_active_dashboard_reports
+    rep_suite = generate_active_dashboard_reports()
 
     # 4 Dynamic Dashboard Tabs & Top-level Quick Report Download
     st.markdown("---")
@@ -454,19 +479,10 @@ def render_custom_analyzer_page():
         st.markdown(f"### 📈 Interactive Auto-Dashboard: {data_source_label}")
     with dl_col:
         st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
-        quick_html = generate_executive_html_report(
-            df=enriched_df,
-            data_source_label=data_source_label,
-            schema_info=schema_info,
-            txn_data=txn_data,
-            reviews_data=reviews_data,
-            rfm_metrics=rfm_metrics,
-            rfm_df=rfm_df,
-        )
         st.download_button(
             label="📄 1-Click Download Executive Report (HTML / PDF)",
-            data=quick_html.encode("utf-8"),
-            file_name=f"executive_report_{datetime.now().strftime('%Y%m%d_%H%M')}.html",
+            data=rep_suite["html_report"].encode("utf-8"),
+            file_name=rep_suite["html_filename"],
             mime="text/html",
             type="primary",
             width="stretch",
@@ -758,19 +774,10 @@ def render_custom_analyzer_page():
         rep_col1, rep_col2, rep_col3, rep_col4 = st.columns(4)
 
         with rep_col1:
-            html_rep = generate_executive_html_report(
-                df=enriched_df,
-                data_source_label=data_source_label,
-                schema_info=schema_info,
-                txn_data=txn_data,
-                reviews_data=reviews_data,
-                rfm_metrics=rfm_metrics,
-                rfm_df=rfm_df,
-            )
             st.download_button(
                 label="📄 Executive Report (HTML / PDF)",
-                data=html_rep.encode("utf-8"),
-                file_name=f"executive_analytics_report_{datetime.now().strftime('%Y%m%d_%H%M')}.html",
+                data=rep_suite["html_report"].encode("utf-8"),
+                file_name=rep_suite["html_filename"],
                 mime="text/html",
                 type="primary",
                 help="Download styled briefing report. Open in any browser and press Ctrl+P to save as PDF.",
@@ -779,18 +786,10 @@ def render_custom_analyzer_page():
             st.caption("🖨️ *Printable: Ctrl+P to save as PDF.*")
 
         with rep_col2:
-            excel_bytes = generate_excel_analytical_workbook(
-                enriched_df=enriched_df,
-                data_source_label=data_source_label,
-                txn_data=txn_data,
-                reviews_data=reviews_data,
-                rfm_df=rfm_df,
-                rfm_metrics=rfm_metrics,
-            )
             st.download_button(
                 label="📊 Analytical Workbook (Excel)",
-                data=excel_bytes,
-                file_name=f"analytical_workbook_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                data=rep_suite["excel_bytes"],
+                file_name=rep_suite["excel_filename"],
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 help="Multi-tab Excel workbook with Executive Summary, Enriched Data, Trends, Aspects, and RFM tabs.",
                 width="stretch",
@@ -798,17 +797,10 @@ def render_custom_analyzer_page():
             st.caption("📑 *5 tabs including Star-Schema summaries.*")
 
         with rep_col3:
-            md_rep = generate_markdown_report(
-                df=enriched_df,
-                data_source_label=data_source_label,
-                txn_data=txn_data,
-                reviews_data=reviews_data,
-                rfm_metrics=rfm_metrics,
-            )
             st.download_button(
                 label="📝 Briefing Summary (Markdown)",
-                data=md_rep.encode("utf-8"),
-                file_name=f"executive_summary_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
+                data=rep_suite["md_report"].encode("utf-8"),
+                file_name=rep_suite["md_filename"],
                 mime="text/markdown",
                 help="Structured Markdown briefing document with formatted KPI tables.",
                 width="stretch",
@@ -816,13 +808,10 @@ def render_custom_analyzer_page():
             st.caption("📝 *GitHub-flavored Markdown format.*")
 
         with rep_col4:
-            csv_buffer = io.StringIO()
-            enriched_df.to_csv(csv_buffer, index=False)
-            csv_bytes = csv_buffer.getvalue().encode("utf-8")
             st.download_button(
                 label="📁 Enriched Raw Data (CSV)",
-                data=csv_bytes,
-                file_name=f"enriched_dataset_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                data=rep_suite["csv_bytes"],
+                file_name=rep_suite["csv_filename"],
                 mime="text/csv",
                 help="Complete dataset enriched with ML predictions and extracted aspect tags.",
                 width="stretch",

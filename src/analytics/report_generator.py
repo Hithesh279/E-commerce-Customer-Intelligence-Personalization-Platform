@@ -404,8 +404,8 @@ def generate_excel_analytical_workbook(
         summary_df = pd.DataFrame(kpi_rows)
         summary_df.to_excel(writer, sheet_name="Executive_Summary", index=False)
 
-        # Sheet 2: Enriched Dataset (truncated to 50,000 for Excel safety)
-        enriched_df.head(50000).to_excel(writer, sheet_name="Enriched_Dataset", index=False)
+        # Sheet 2: Enriched Dataset (optimized sample up to 2,500 records for sub-second export; full data in CSV)
+        enriched_df.head(2500).to_excel(writer, sheet_name="Enriched_Dataset", index=False)
 
         # Sheet 3: Commercial Trends & Categories
         if not txn_data.get("timeline_df", pd.DataFrame()).empty:
@@ -419,9 +419,9 @@ def generate_excel_analytical_workbook(
         if reviews_data is not None and not reviews_data.get("aspect_summary", pd.DataFrame()).empty:
             reviews_data["aspect_summary"].to_excel(writer, sheet_name="Aspect_Sentiment", index=False)
 
-        # Sheet 5: RFM Clusters
+        # Sheet 5: RFM Clusters (optimized up to 2,500 rows)
         if rfm_df is not None:
-            rfm_df.head(25000).to_excel(writer, sheet_name="RFM_Customer_Segments", index=False)
+            rfm_df.head(2500).to_excel(writer, sheet_name="RFM_Customer_Segments", index=False)
         if rfm_metrics is not None and not rfm_metrics.get("segment_summary", pd.DataFrame()).empty:
             rfm_metrics["segment_summary"].to_excel(writer, sheet_name="RFM_Segment_Totals", index=False)
 

@@ -44,8 +44,15 @@ def _is_streamlit_running() -> bool:
         return False
 
 
+_DEFAULT_DEMO_BUNDLES_CACHE: Optional[Dict[str, Any]] = None
+
+
 def get_default_demo_bundles() -> Dict[str, Any]:
     """Compute and cache analytics bundles from default processed demo dataset."""
+    global _DEFAULT_DEMO_BUNDLES_CACHE
+    if _DEFAULT_DEMO_BUNDLES_CACHE is not None:
+        return _DEFAULT_DEMO_BUNDLES_CACHE
+
     from src.analytics.business_metrics import (
         calculate_category_performance,
         calculate_executive_kpis,
@@ -69,7 +76,7 @@ def get_default_demo_bundles() -> Dict[str, Any]:
     seg_summary = get_segment_summary(cust_profiles)
     prod_perf = generate_product_performance_metrics(prod_df, txns_df, rev_df)
 
-    return {
+    res = {
         "exec_kpis": exec_kpis,
         "monthly_trend": monthly_trend,
         "cat_perf": cat_perf,
@@ -81,6 +88,8 @@ def get_default_demo_bundles() -> Dict[str, Any]:
         "has_transactions": True,
         "has_reviews": True,
     }
+    _DEFAULT_DEMO_BUNDLES_CACHE = res
+    return res
 
 
 def build_custom_analytics_bundles(
@@ -555,6 +564,10 @@ def set_active_custom_dataset(
     }
 
     if _is_streamlit_running():
+        old_ds = st.session_state.get("active_dataset_name")
+        if old_ds != source_label:
+            st.session_state.pop("_cached_active_reports", None)
+            st.session_state.pop("_cached_active_reports_key", None)
         st.session_state["active_dataset"] = dataset_state
         st.session_state["is_custom_active"] = True
         st.session_state["active_dataset_name"] = source_label
@@ -581,6 +594,9 @@ def reset_to_default_demo_dataset():
             del st.session_state["active_dataset"]
         st.session_state["is_custom_active"] = False
         st.session_state["active_dataset_name"] = "Default Demo Store Data"
+        st.session_state.pop("_cached_active_reports", None)
+        st.session_state.pop("_cached_active_reports_key", None)
+        st.session_state.pop("_analyzer_cache_sig", None)
     logger.info("Platform dataset reset to default processed demo dataset.")
 
 
@@ -603,19 +619,30 @@ def get_active_bundles() -> Dict[str, Any]:
     return get_default_demo_bundles()
 
 
+_DEFAULT_ASPECTS_CACHE: Optional[pd.DataFrame] = None
+
+
 def get_active_aspects_df() -> pd.DataFrame:
     """
     Central provider of aspect sentiment observations for NLP Insights page.
     Returns custom extracted aspects if active, or default review_aspects.csv.
     """
+    global _DEFAULT_ASPECTS_CACHE
     state = get_active_dataset_state()
     if state is not None and "aspects_df" in state and not state["aspects_df"].empty:
         return state["aspects_df"]
 
+    if _DEFAULT_ASPECTS_CACHE is not None:
+        return _DEFAULT_ASPECTS_CACHE
+
     path = PROCESSED_DATA_DIR / "review_aspects.csv"
     if path.exists():
-        return pd.read_csv(path)
+        _DEFAULT_ASPECTS_CACHE = pd.read_csv(path)
+        return _DEFAULT_ASPECTS_CACHE
     return pd.DataFrame()
+
+
+_DEFAULT_DEMO_REPORTS_CACHE: Optional[Dict[str, Any]] = None
 
 
 def generate_active_dashboard_reports() -> Dict[str, Any]:
@@ -624,8 +651,14 @@ def generate_active_dashboard_reports() -> Dict[str, Any]:
     HTML/PDF executive report, multi-sheet Excel workbook, Markdown briefing, and CSV.
     Caches results in session_state to ensure instant UI rendering.
     """
+    global _DEFAULT_DEMO_REPORTS_CACHE
     state = get_active_dataset_state()
-    cache_key = f"{state['dataset_name']}_{state['timestamp']}_{state['row_count']}" if state else "default_demo"
+
+    # For default demo dataset, return instant module-level cache if available
+    if state is None and _DEFAULT_DEMO_REPORTS_CACHE is not None:
+        return _DEFAULT_DEMO_REPORTS_CACHE
+
+    cache_key = f"{state['dataset_name']}_{state.get('row_count', 0)}_{state.get('col_count', 0)}" if state else "default_demo"
 
     if _is_streamlit_running():
         cached = st.session_state.get("_cached_active_reports")
@@ -704,6 +737,9 @@ def generate_active_dashboard_reports() -> Dict[str, Any]:
         "md_filename": f"executive_briefing_{clean_prefix}_{ts}.md",
         "csv_filename": f"dataset_{clean_prefix}_{ts}.csv",
     }
+
+    if state is None:
+        _DEFAULT_DEMO_REPORTS_CACHE = reports_suite
 
     if _is_streamlit_running():
         st.session_state["_cached_active_reports"] = reports_suite
