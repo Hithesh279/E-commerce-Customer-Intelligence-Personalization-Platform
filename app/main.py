@@ -113,6 +113,9 @@ def main():
 
     st.markdown("---")
 
+    from app.services.active_dataset_manager import render_global_active_dataset_banner
+    render_global_active_dataset_banner()
+
     # Executive Overview Dashboard embedded on Home
     st.markdown("### 📊 Executive Commercial Health & Performance")
     bundles = get_cached_analytics_bundles()

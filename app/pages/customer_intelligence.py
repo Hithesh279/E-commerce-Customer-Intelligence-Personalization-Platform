@@ -26,6 +26,9 @@ def render_customer_intelligence_page():
     st.markdown("## 👥 Customer Intelligence & Behavioral Segmentation")
     st.caption("Recency, Frequency, and Monetary (RFM) analytics and 360-degree customer profiling.")
 
+    from app.services.active_dataset_manager import render_global_active_dataset_banner
+    render_global_active_dataset_banner()
+
     bundles = get_cached_analytics_bundles()
     cust_profiles = bundles["cust_profiles"]
     seg_summary = bundles["seg_summary"]

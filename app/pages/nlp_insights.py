@@ -27,6 +27,9 @@ def render_nlp_insights_page():
     st.markdown("## 🧠 NLP Customer Voice & Aspect-Based Sentiment")
     st.caption("Fine-grained review intelligence, 11-aspect sentiment polarity, and recurring complaint discovery.")
 
+    from app.services.active_dataset_manager import render_global_active_dataset_banner
+    render_global_active_dataset_banner()
+
     aspects_df = load_aspects_data()
 
     if aspects_df.empty:

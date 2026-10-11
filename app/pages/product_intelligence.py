@@ -27,6 +27,9 @@ def render_product_intelligence_page():
     st.markdown("## 📦 Product Intelligence & Anomaly Discovery")
     st.caption("Commercial SKU performance, sentiment-sales discrepancy detection, and similar product retrieval.")
 
+    from app.services.active_dataset_manager import render_global_active_dataset_banner
+    render_global_active_dataset_banner()
+
     bundles = get_cached_analytics_bundles()
     prod_perf = bundles["prod_perf"]
 

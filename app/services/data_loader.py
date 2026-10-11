@@ -31,17 +31,27 @@ def load_all_processed_data() -> Dict[str, pd.DataFrame]:
 
 
 @st.cache_data(show_spinner=False)
-def load_aspects_data() -> pd.DataFrame:
-    """Load extracted aspect-sentiment observations."""
+def _load_default_aspects_data() -> pd.DataFrame:
+    """Load default extracted aspect-sentiment observations from disk."""
     path = PROCESSED_DATA_DIR / "review_aspects.csv"
     if path.exists():
         return pd.read_csv(path)
     return pd.DataFrame()
 
 
+def load_aspects_data() -> pd.DataFrame:
+    """
+    Load extracted aspect-sentiment observations.
+    Dynamically returns the active custom dataset's aspects if loaded,
+    otherwise falls back to default processed review aspects.
+    """
+    from app.services.active_dataset_manager import get_active_aspects_df
+    return get_active_aspects_df()
+
+
 @st.cache_data(show_spinner=False)
-def get_cached_analytics_bundles():
-    """Compute and cache all business KPIs, customer profiles, and product performance tables."""
+def _get_default_cached_analytics_bundles():
+    """Compute and cache default business KPIs, customer profiles, and product performance tables."""
     raw = load_all_processed_data()
     cust_df = raw["customers"]
     prod_df = raw["products"]
@@ -63,3 +73,14 @@ def get_cached_analytics_bundles():
         "seg_summary": seg_summary,
         "prod_perf": prod_perf,
     }
+
+
+def get_cached_analytics_bundles():
+    """
+    Compute and provide all business KPIs, customer profiles, and product performance tables.
+    Seamlessly synchronizes with the active dataset (custom uploaded data or selected template)
+    across all dashboard pages (Main, Overview, Customer Intelligence, Product Intelligence, etc.).
+    """
+    from app.services.active_dataset_manager import get_active_bundles
+    return get_active_bundles()
+

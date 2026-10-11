@@ -112,9 +112,120 @@ def apply_custom_css():
 
 
 def render_sidebar_status():
-    """Render unified platform sidebar branding and system status."""
+    """Render unified platform sidebar branding, global dataset manager, and system status."""
     st.sidebar.markdown("## 🛍️ Customer Intelligence")
-    st.sidebar.caption("Portfolio Platform • v1.0.0")
+    st.sidebar.caption("Portfolio Platform • v2.0.0")
+    st.sidebar.markdown("---")
+
+    from app.services.active_dataset_manager import (
+        generate_active_dashboard_reports,
+        get_active_dataset_state,
+        load_template_as_active_dataset,
+        reset_to_default_demo_dataset,
+    )
+    from src.analytics.templates import TEMPLATES_CONFIG
+
+    state = get_active_dataset_state()
+    is_custom = state is not None
+
+    st.sidebar.markdown("### 📊 Active Platform Dataset")
+    if is_custom:
+        d_name = state["dataset_name"]
+        rows = state["row_count"]
+        cols = state["col_count"]
+        st.sidebar.markdown(
+            f"""
+            <div style="background: #064e3b; border: 1px solid #059669; border-radius: 6px; padding: 10px; margin-bottom: 10px;">
+                <div style="font-size: 0.78rem; color: #a7f3d0; font-weight: 600;">🟢 CUSTOM DATA ACTIVE</div>
+                <div style="font-size: 0.88rem; color: #ffffff; font-weight: 700; margin-top: 2px; word-break: break-word;">{d_name}</div>
+                <div style="font-size: 0.74rem; color: #d1fae5; margin-top: 4px;">{rows:,} rows × {cols} cols • Synced across all pages</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        st.sidebar.markdown(
+            """
+            <div style="background: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 10px; margin-bottom: 10px;">
+                <div style="font-size: 0.78rem; color: #94a3b8; font-weight: 600;">📦 DEMO STORE DATA</div>
+                <div style="font-size: 0.88rem; color: #f8fafc; font-weight: 700; margin-top: 2px;">E-commerce Default Baseline</div>
+                <div style="font-size: 0.74rem; color: #cbd5e1; margin-top: 4px;">1,000 txns • 200 customers • 50 products</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # Quick Dataset Switcher
+    st.sidebar.markdown("##### 🔄 Switch Platform Dataset:")
+    template_options = ["(Current Active Dataset)", "📦 Default Demo Store Data"] + [
+        f"{cfg['icon']} {cfg['name']}" for cfg in TEMPLATES_CONFIG.values()
+    ]
+
+    sel_template = st.sidebar.selectbox(
+        "Choose a template or data source:",
+        options=template_options,
+        index=0,
+        key="sidebar_dataset_switcher",
+        label_visibility="collapsed",
+    )
+
+    if sel_template != "(Current Active Dataset)":
+        if sel_template == "📦 Default Demo Store Data":
+            reset_to_default_demo_dataset()
+            st.rerun()
+        else:
+            for tid, cfg in TEMPLATES_CONFIG.items():
+                if cfg["name"] in sel_template:
+                    with st.spinner(f"Activating {cfg['name']}..."):
+                        load_template_as_active_dataset(tid)
+                    st.rerun()
+
+    if is_custom:
+        if st.sidebar.button("↺ Reset to Demo Store Data", key="sidebar_btn_reset_default", use_container_width=True):
+            reset_to_default_demo_dataset()
+            st.rerun()
+
+    # 1-Click Download Entire Dashboard
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 📥 Download Entire Dashboard")
+    st.sidebar.caption("Export the complete findings for the active dataset:")
+
+    with st.sidebar.expander("📄 Export Reports & Data", expanded=False):
+        rep = generate_active_dashboard_reports()
+        st.download_button(
+            label="📄 Executive Report (HTML/PDF)",
+            data=rep["html_report"].encode("utf-8"),
+            file_name=rep["html_filename"],
+            mime="text/html",
+            type="primary",
+            key="sb_dl_html",
+            use_container_width=True,
+        )
+        st.download_button(
+            label="📊 Analytical Excel (.xlsx)",
+            data=rep["excel_bytes"],
+            file_name=rep["excel_filename"],
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="sb_dl_excel",
+            use_container_width=True,
+        )
+        st.download_button(
+            label="📝 Executive Briefing (.md)",
+            data=rep["md_report"].encode("utf-8"),
+            file_name=rep["md_filename"],
+            mime="text/markdown",
+            key="sb_dl_md",
+            use_container_width=True,
+        )
+        st.download_button(
+            label="📁 Enriched Data (.csv)",
+            data=rep["csv_bytes"],
+            file_name=rep["csv_filename"],
+            mime="text/csv",
+            key="sb_dl_csv",
+            use_container_width=True,
+        )
+
     st.sidebar.markdown("---")
     st.sidebar.markdown(
         """
@@ -125,4 +236,5 @@ def render_sidebar_status():
         """
     )
     st.sidebar.caption("Designed for Data Science & ML Engineering Portfolio")
+
 

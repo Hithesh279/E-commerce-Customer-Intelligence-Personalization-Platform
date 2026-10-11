@@ -419,6 +419,20 @@ def render_custom_analyzer_page():
         # Generic profiling
         table_profile = profile_generic_table(enriched_df)
 
+        # Synchronize this dataset globally across all platform pages
+        from app.services.active_dataset_manager import set_active_custom_dataset
+        set_active_custom_dataset(
+            df=active_df,
+            source_label=data_source_label,
+            schema_info=schema_info,
+            txn_data=txn_data,
+            reviews_data=reviews_data,
+            rfm_df=rfm_df,
+            rfm_metrics=rfm_metrics,
+            table_profile=table_profile,
+            enriched_df=enriched_df,
+        )
+
     from src.analytics.report_generator import (
         generate_excel_analytical_workbook,
         generate_executive_html_report,
@@ -427,6 +441,7 @@ def render_custom_analyzer_page():
 
     # 4 Dynamic Dashboard Tabs & Top-level Quick Report Download
     st.markdown("---")
+    st.success(f"🌐 **Active Platform Dataset Synchronized:** All pages (**Main**, **Overview**, **Customer Intelligence**, **Product Intelligence**, **NLP Insights**, **Recommendations**) are now displaying this dataset!")
     header_col, dl_col = st.columns([3, 2])
     with header_col:
         st.markdown(f"### 📈 Interactive Auto-Dashboard: {data_source_label}")

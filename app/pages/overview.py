@@ -29,6 +29,9 @@ def render_overview_page():
     st.markdown("## 📈 Executive Overview & Commercial Performance")
     st.caption("High-level business health scorecards, sales trajectories, and customer distribution.")
 
+    from app.services.active_dataset_manager import render_global_active_dataset_banner
+    render_global_active_dataset_banner()
+
     bundles = get_cached_analytics_bundles()
     kpis = bundles["exec_kpis"]
 
