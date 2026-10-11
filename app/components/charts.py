@@ -74,10 +74,12 @@ def plot_aspect_radar(aspects_summary: pd.DataFrame) -> go.Figure:
 
 def plot_segment_distribution(segment_df: pd.DataFrame) -> go.Figure:
     """Plot customer segment donut chart."""
+    col_name = "customer_segment" if "customer_segment" in segment_df.columns else "segment"
+    val_name = "customer_count" if "customer_count" in segment_df.columns else "count"
     fig = px.pie(
         segment_df,
-        names="customer_segment",
-        values="customer_count",
+        names=col_name,
+        values=val_name,
         hole=0.45,
         title="Customer Distribution by Segment",
         color_discrete_sequence=px.colors.qualitative.Prism,
@@ -88,3 +90,96 @@ def plot_segment_distribution(segment_df: pd.DataFrame) -> go.Figure:
         height=320,
     )
     return fig
+
+
+def plot_sentiment_donut(sentiment_dict: Dict[str, int]) -> go.Figure:
+    """Plot donut chart of sentiment distribution (Positive, Neutral, Negative)."""
+    color_map = {"Positive": "#10b981", "Neutral": "#64748b", "Negative": "#ef4444"}
+    labels = list(sentiment_dict.keys())
+    values = list(sentiment_dict.values())
+    colors = [color_map.get(lbl, "#3b82f6") for lbl in labels]
+
+    fig = go.Figure(data=[go.Pie(
+        labels=labels,
+        values=values,
+        hole=0.55,
+        marker=dict(colors=colors),
+        textinfo="label+percent",
+        hovertemplate="<b>%{label}</b><br>Count: %{value}<br>Share: %{percent}<extra></extra>",
+    )])
+    fig.update_layout(
+        title="Overall Sentiment Distribution",
+        template="plotly_white",
+        margin=dict(l=20, r=20, t=40, b=20),
+        height=320,
+        showlegend=True,
+    )
+    return fig
+
+
+def plot_rfm_scatter(rfm_df: pd.DataFrame) -> go.Figure:
+    """Plot 2D/3D behavioral scatter plot: Recency vs Monetary sized by Frequency."""
+    fig = px.scatter(
+        rfm_df,
+        x="recency_days",
+        y="monetary_total",
+        size="frequency",
+        color="rfm_segment",
+        hover_data=["customer_id", "frequency", "monetary_total", "recency_days"],
+        title="Customer RFM Matrix: Recency vs Monetary Value",
+        labels={
+            "recency_days": "Recency (Days Since Last Order)",
+            "monetary_total": "Monetary Value ($)",
+            "rfm_segment": "Segment",
+            "frequency": "Order Frequency",
+        },
+        color_discrete_sequence=px.colors.qualitative.Safe,
+    )
+    fig.update_layout(
+        template="plotly_white",
+        margin=dict(l=20, r=20, t=40, b=20),
+        height=380,
+    )
+    return fig
+
+
+def plot_correlation_heatmap(corr_df: pd.DataFrame) -> go.Figure:
+    """Plot Pearson correlation heatmap for numerical features."""
+    fig = px.imshow(
+        corr_df,
+        text_auto=True,
+        aspect="auto",
+        color_continuous_scale="RdBu_r",
+        zmin=-1,
+        zmax=1,
+        title="Numerical Features Pearson Correlation Matrix",
+    )
+    fig.update_layout(
+        template="plotly_white",
+        margin=dict(l=20, r=20, t=40, b=20),
+        height=380,
+    )
+    return fig
+
+
+def plot_metric_timeline(timeline_df: pd.DataFrame, x_col: str, y_col: str, title: str) -> go.Figure:
+    """Plot line/bar trend chart for any time series metric."""
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=timeline_df[x_col],
+        y=timeline_df[y_col],
+        mode="lines+markers",
+        name=y_col.replace("_", " ").title(),
+        line=dict(color="#3b82f6", width=3),
+        marker=dict(size=6, color="#1d4ed8"),
+    ))
+    fig.update_layout(
+        title=title,
+        xaxis_title=x_col.replace("_", " ").title(),
+        yaxis_title=y_col.replace("_", " ").title(),
+        template="plotly_white",
+        margin=dict(l=20, r=20, t=40, b=20),
+        height=320,
+    )
+    return fig
+

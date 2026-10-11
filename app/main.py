@@ -90,12 +90,26 @@ def main():
                 <p style="font-size:0.8rem; color:#64748b; margin:6px 0 0 0;">Multi-strategy engine (Hybrid, TruncatedSVD CF, Content-Based, Popularity) with explainable AI rationale.</p>
             </div>
             <div style="background:#ffffff; border:1px solid #e2e8f0; border-top:3px solid #06b6d4; border-radius:8px; padding:14px; margin-bottom:12px;">
-                <strong style="font-size:0.95rem; color:#1e293b;">✍️ Live NLP & 📊 Benchmarks</strong>
-                <p style="font-size:0.8rem; color:#64748b; margin:6px 0 0 0;">Test custom reviews live in real-time and inspect leakage-free offline evaluation metrics.</p>
+                <strong style="font-size:0.95rem; color:#1e293b;">📁 Upload & Auto-Dashboard</strong>
+                <p style="font-size:0.8rem; color:#64748b; margin:6px 0 0 0;">Upload any CSV/Excel or load 6 enterprise templates for instant ML auto-dashboards and enriched exports.</p>
             </div>
             """,
             unsafe_allow_html=True,
         )
+
+    # Callout Banner for Custom Analyzer
+    st.markdown(
+        """
+        <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-left: 4px solid #16a34a; border-radius: 8px; padding: 14px 18px; margin-bottom: 22px;">
+            <strong style="color: #166534; font-size: 0.95rem;">✨ New Feature: Upload Custom Data & Auto-Generate Dashboards!</strong>
+            <p style="font-size: 0.85rem; color: #15803d; margin: 4px 0 0 0;">
+                Navigate to <strong>Custom Data Analyzer</strong> in the left sidebar to upload any CSV or Excel file — or test one of our 
+                <strong>6 enterprise business templates</strong> (Product Reviews, Retail Sales, RFM Profiles, Inventory, Support Tickets, Churn).
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     st.markdown("---")
 

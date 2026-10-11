@@ -1,0 +1,510 @@
+"""
+app/pages/custom_data_analyzer.py
+User Data Upload & Auto-Generated Interactive Dashboard.
+Supports CSV/Excel uploads, 6 pre-built enterprise business templates,
+automated schema inference, NLP batch sentiment, RFM customer profiling, and enriched exports.
+"""
+import io
+import sys
+from pathlib import Path
+
+# Ensure project root is in sys.path
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+import numpy as np
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import streamlit as st
+
+st.set_page_config(
+    page_title="Custom Data Analyzer • Customer Intelligence",
+    page_icon="📁",
+    layout="wide",
+)
+
+from app.components.cards import render_metric_card
+from app.components.charts import (
+    plot_aspect_radar,
+    plot_category_sales,
+    plot_correlation_heatmap,
+    plot_metric_timeline,
+    plot_revenue_trend,
+    plot_rfm_scatter,
+    plot_segment_distribution,
+    plot_sentiment_donut,
+)
+from app.components.styles import apply_custom_css, render_sidebar_status
+from src.analytics.auto_analyzer import (
+    analyze_custom_reviews,
+    analyze_custom_transactions,
+    calculate_custom_rfm,
+    detect_schema,
+    profile_generic_table,
+)
+from src.analytics.templates import (
+    generate_blank_template_csv,
+    get_available_templates,
+    load_sample_template,
+)
+
+
+def render_custom_analyzer_page():
+    """Render the Custom Data Analyzer and Auto-Dashboard page."""
+    apply_custom_css()
+    render_sidebar_status()
+
+    # Hero Header
+    st.markdown(
+        """
+        <div style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #ffffff; padding: 22px 28px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #334155;">
+            <h2 style="margin: 0; font-size: 1.8rem; font-weight: 800; color: #f8fafc;">📁 Custom Data Upload & Auto-Dashboard Generator</h2>
+            <p style="margin: 8px 0 0 0; font-size: 0.95rem; color: #cbd5e1; line-height: 1.5;">
+                Upload your company's CSV or Excel data — or load one of our <strong>6 enterprise business templates</strong>. 
+                Our platform automatically inspects the schema, executes batch NLP sentiment classification, computes commercial KPIs and RFM customer profiles, and generates an interactive executive dashboard.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    templates = get_available_templates()
+
+    # Ingestion Source Selector
+    st.markdown("##### 📥 Step 1: Select Data Ingestion Source")
+    ingest_mode = st.radio(
+        "Choose how you want to provide data:",
+        ["📋 Use Enterprise Business Template", "📂 Upload Custom File (CSV or Excel)"],
+        horizontal=True,
+    )
+
+    active_df = None
+    data_source_label = ""
+
+    if ingest_mode == "📋 Use Enterprise Business Template":
+        st.markdown(
+            """
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+                <strong style="color: #1e293b; font-size: 0.95rem;">Select from 6 Pre-Configured Enterprise Templates:</strong>
+                <p style="font-size: 0.85rem; color: #64748b; margin: 4px 0 12px 0;">
+                    Each template is designed for a specific business vertical. You can test it immediately with 1 click, or download the blank CSV schema to fill with your own records.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        template_keys = list(templates.keys())
+        template_names = [f"{templates[k]['icon']} {templates[k]['name']} ({templates[k]['category']})" for k in template_keys]
+        selected_idx = st.selectbox(
+            "Choose a Business Template:",
+            range(len(template_keys)),
+            format_func=lambda i: template_names[i],
+        )
+        selected_key = template_keys[selected_idx]
+        t_meta = templates[selected_key]
+
+        col_t1, col_t2 = st.columns([3, 1])
+        with col_t1:
+            st.markdown(f"**Description**: {t_meta['description']}")
+            st.caption(f"**Standard Schema Columns**: `{', '.join(t_meta['columns'])}`")
+        with col_t2:
+            st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
+            blank_csv = generate_blank_template_csv(selected_key)
+            st.download_button(
+                label=f"📥 Download Blank Template CSV",
+                data=blank_csv,
+                file_name=f"{selected_key}_template.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+
+        btn_load = st.button("⚡ Load & Analyze This Template", type="primary", use_container_width=False)
+        if btn_load or f"template_{selected_key}_loaded" in st.session_state:
+            st.session_state[f"template_{selected_key}_loaded"] = True
+            active_df = load_sample_template(selected_key, n_records=150)
+            data_source_label = f"Template: {t_meta['name']}"
+
+    else:
+        uploaded_file = st.file_uploader(
+            "Upload your dataset (CSV or Excel file):",
+            type=["csv", "xlsx", "xls"],
+            help="Upload raw customer reviews, sales transactions, support tickets, or any tabular business data.",
+        )
+        if uploaded_file is not None:
+            try:
+                if uploaded_file.name.endswith(".csv"):
+                    active_df = pd.read_csv(uploaded_file)
+                else:
+                    active_df = pd.read_excel(uploaded_file)
+                data_source_label = f"Uploaded File: {uploaded_file.name}"
+            except Exception as e:
+                st.error(f"Error loading uploaded file: {e}")
+                return
+
+    if active_df is None or active_df.empty:
+        st.info("👆 Please select a business template and click **Load & Analyze**, or upload your own CSV/Excel file to start.")
+        return
+
+    # Auto-detection
+    schema_info = detect_schema(active_df)
+    mappings = schema_info["mappings"]
+    modalities = schema_info["modalities"]
+
+    # File Summary Ribbon
+    st.markdown("---")
+    st.markdown("##### 📊 Dataset Profile & Auto-Detected Schema")
+    m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+    with m_col1:
+        st.metric("Total Records", f"{len(active_df):,}")
+    with m_col2:
+        st.metric("Total Columns", f"{len(active_df.columns):,}")
+    with m_col3:
+        st.metric("Memory Footprint", f"{active_df.memory_usage(deep=True).sum() / 1024:.1f} KB")
+    with m_col4:
+        tag_list = []
+        if modalities["has_reviews"]:
+            tag_list.append("💬 Reviews / VoC")
+        if modalities["has_transactions"]:
+            tag_list.append("🛍️ Transactions")
+        if modalities["has_rfm"]:
+            tag_list.append("👥 RFM Profiles")
+        if not tag_list:
+            tag_list.append("📊 Tabular")
+        st.metric("Detected Modality", " + ".join(tag_list))
+
+    # Column Mapping Override Expander
+    with st.expander("🛠️ Review / Customize Column Mappings (Optional)", expanded=False):
+        st.caption("Our smart schema detector identified the candidate columns below. You can override any mapping if needed:")
+        cols_options = ["None"] + list(active_df.columns)
+
+        def get_default_idx(col_name):
+            if col_name in active_df.columns:
+                return cols_options.index(col_name)
+            return 0
+
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            sel_text = st.selectbox("Text / Review Column:", cols_options, index=get_default_idx(mappings["text_col"]))
+            sel_rating = st.selectbox("Rating / Score Column:", cols_options, index=get_default_idx(mappings["rating_col"]))
+        with c2:
+            sel_date = st.selectbox("Date / Timestamp Column:", cols_options, index=get_default_idx(mappings["date_col"]))
+            sel_revenue = st.selectbox("Revenue / Amount Column:", cols_options, index=get_default_idx(mappings["revenue_col"]))
+        with c3:
+            sel_cust = st.selectbox("Customer ID Column:", cols_options, index=get_default_idx(mappings["customer_col"]))
+            sel_prod = st.selectbox("Product / SKU Column:", cols_options, index=get_default_idx(mappings["product_col"]))
+        with c4:
+            sel_cat = st.selectbox("Category / Dept Column:", cols_options, index=get_default_idx(mappings["category_col"]))
+            sel_status = st.selectbox("Status / Return Column:", cols_options, index=get_default_idx(mappings["status_col"]))
+
+        # Apply overrides
+        text_col = None if sel_text == "None" else sel_text
+        rating_col = None if sel_rating == "None" else sel_rating
+        date_col = None if sel_date == "None" else sel_date
+        revenue_col = None if sel_revenue == "None" else sel_revenue
+        customer_col = None if sel_cust == "None" else sel_cust
+        product_col = None if sel_prod == "None" else sel_prod
+        category_col = None if sel_cat == "None" else sel_cat
+        status_col = None if sel_status == "None" else sel_status
+
+    # Data Processing
+    with st.spinner("Executing ML inference and analytics aggregations..."):
+        # Reviews analysis
+        reviews_data = None
+        enriched_df = active_df.copy()
+        if text_col and text_col in active_df.columns:
+            enriched_df, reviews_data = analyze_custom_reviews(active_df, text_col=text_col, rating_col=rating_col)
+
+        # Transactions analysis
+        txn_data = analyze_custom_transactions(
+            enriched_df,
+            date_col=date_col,
+            revenue_col=revenue_col,
+            customer_col=customer_col,
+            category_col=category_col,
+            product_col=product_col,
+            status_col=status_col,
+        )
+
+        # RFM analysis
+        rfm_df, rfm_metrics = None, None
+        if customer_col and (date_col or "lifetime_spend" in [str(c).lower() for c in active_df.columns]):
+            try:
+                rfm_df, rfm_metrics = calculate_custom_rfm(
+                    enriched_df,
+                    customer_col=customer_col,
+                    date_col=date_col,
+                    revenue_col=revenue_col,
+                )
+            except Exception as e:
+                rfm_df, rfm_metrics = None, None
+
+        # Generic profiling
+        table_profile = profile_generic_table(enriched_df)
+
+    # 4 Dynamic Dashboard Tabs
+    st.markdown("---")
+    st.markdown(f"### 📈 Interactive Auto-Dashboard: {data_source_label}")
+
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📈 Executive KPIs & Trends",
+        "🧠 NLP & Aspect Intelligence",
+        "👥 Customer Behavioral & RFM",
+        "📁 Data Explorer & Enriched Export",
+    ])
+
+    # ==========================================
+    # TAB 1: EXECUTIVE KPIS & TRENDS
+    # ==========================================
+    with tab1:
+        st.markdown("#### 🏆 High-Level Business Performance Scorecards")
+        kpi_c1, kpi_c2, kpi_c3, kpi_c4, kpi_c5 = st.columns(5)
+
+        if revenue_col and revenue_col in enriched_df.columns:
+            with kpi_c1:
+                render_metric_card(
+                    title="Total Revenue",
+                    value=f"${txn_data['total_revenue']:,.2f}",
+                    delta="Cumulative Spend",
+                    delta_positive=True,
+                    card_type="success",
+                )
+            with kpi_c2:
+                render_metric_card(
+                    title="Total Orders",
+                    value=f"{txn_data['total_orders']:,}",
+                    delta="Completed Records",
+                    card_type="default",
+                )
+            with kpi_c3:
+                render_metric_card(
+                    title="Average Order Value",
+                    value=f"${txn_data['aov']:.2f}",
+                    delta="Per Transaction",
+                    card_type="default",
+                )
+            with kpi_c4:
+                render_metric_card(
+                    title="Unique Customers",
+                    value=f"{txn_data['unique_customers']:,}",
+                    delta="Active Buyers",
+                    card_type="default",
+                )
+            with kpi_c5:
+                render_metric_card(
+                    title="Return / Churn Rate",
+                    value=f"{txn_data['return_rate']:.1f}%",
+                    delta="Exception Rate",
+                    delta_positive=txn_data['return_rate'] < 10.0,
+                    card_type="warning" if txn_data['return_rate'] >= 10.0 else "success",
+                )
+        elif reviews_data is not None:
+            with kpi_c1:
+                render_metric_card(
+                    title="Total Reviews Analyzed",
+                    value=f"{reviews_data['total_reviews']:,}",
+                    delta="NLP Processed",
+                    card_type="default",
+                )
+            with kpi_c2:
+                render_metric_card(
+                    title="Positive Sentiment",
+                    value=f"{reviews_data['positive_pct']:.1f}%",
+                    delta="Brand Advocates",
+                    delta_positive=reviews_data['positive_pct'] > 50,
+                    card_type="success",
+                )
+            with kpi_c3:
+                render_metric_card(
+                    title="Negative Sentiment",
+                    value=f"{reviews_data['negative_pct']:.1f}%",
+                    delta="Dissatisfied",
+                    delta_positive=reviews_data['negative_pct'] < 20,
+                    card_type="danger" if reviews_data['negative_pct'] > 25 else "warning",
+                )
+            with kpi_c4:
+                render_metric_card(
+                    title="Polarity Index",
+                    value=f"{reviews_data['avg_polarity']:+.2f}",
+                    delta="Scale: -1.0 to +1.0",
+                    delta_positive=reviews_data['avg_polarity'] > 0,
+                    card_type="success" if reviews_data['avg_polarity'] > 0 else "danger",
+                )
+            with kpi_c5:
+                aspect_cnt = len(reviews_data['aspect_summary']) if not reviews_data['aspect_summary'].empty else 0
+                render_metric_card(
+                    title="Aspects Extracted",
+                    value=f"{aspect_cnt}",
+                    delta="Granular Features",
+                    card_type="default",
+                )
+        else:
+            with kpi_c1:
+                render_metric_card(title="Total Rows", value=f"{table_profile['row_count']:,}", card_type="default")
+            with kpi_c2:
+                render_metric_card(title="Total Columns", value=f"{table_profile['col_count']:,}", card_type="default")
+            with kpi_c3:
+                render_metric_card(title="Duplicate Rows", value=f"{table_profile['duplicate_rows']:,}", card_type="warning" if table_profile['duplicate_rows'] > 0 else "success")
+            with kpi_c4:
+                render_metric_card(title="Memory Size", value=f"{table_profile['memory_mb']:.2f} MB", card_type="default")
+            with kpi_c5:
+                render_metric_card(title="Completeness", value=f"{100 - table_profile['missing_overview']['missing_pct'].mean():.1f}%", card_type="success")
+
+        # Visualizations Row 1
+        st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+        col_v1, col_v2 = st.columns(2)
+
+        with col_v1:
+            if not txn_data["timeline_df"].empty:
+                st.plotly_chart(
+                    plot_revenue_trend(
+                        txn_data["timeline_df"].rename(
+                            columns={"period": "year_month", "revenue": "total_revenue"}
+                        )
+                    ),
+                    use_container_width=True,
+                )
+            elif reviews_data is not None:
+                st.plotly_chart(plot_sentiment_donut(reviews_data["sentiment_counts"]), use_container_width=True)
+            elif not table_profile["summary_stats"].empty:
+                num_col = table_profile["summary_stats"]["feature"].iloc[0]
+                fig_num = px.histogram(enriched_df, x=num_col, title=f"Distribution of {num_col}", template="plotly_white")
+                st.plotly_chart(fig_num, use_container_width=True)
+            else:
+                st.info("No time series or numeric distribution data available.")
+
+        with col_v2:
+            if not txn_data["category_df"].empty:
+                st.plotly_chart(plot_category_sales(txn_data["category_df"]), use_container_width=True)
+            elif reviews_data is not None and not reviews_data["aspect_summary"].empty:
+                st.plotly_chart(plot_aspect_radar(reviews_data["aspect_summary"]), use_container_width=True)
+            elif len(table_profile["summary_stats"]) > 1:
+                num_col2 = table_profile["summary_stats"]["feature"].iloc[1]
+                fig_num2 = px.box(enriched_df, y=num_col2, title=f"Boxplot of {num_col2}", template="plotly_white")
+                st.plotly_chart(fig_num2, use_container_width=True)
+            else:
+                st.info("No category or aspect distribution data available.")
+
+        # Top Items Leaderboard
+        if not txn_data["top_products_df"].empty:
+            st.markdown("##### 🏆 Top Ranked Products / Items")
+            st.dataframe(txn_data["top_products_df"], use_container_width=True, hide_index=True)
+
+    # ==========================================
+    # TAB 2: NLP & ASPECT INTELLIGENCE
+    # ==========================================
+    with tab2:
+        if reviews_data is not None:
+            st.markdown("#### 🧠 Natural Language Sentiment & 11-Aspect Extraction")
+            st.caption("Batch ML classification evaluating sentiment polarities and extracting hardware/feature satisfaction drivers.")
+
+            c_nlp1, c_nlp2 = st.columns(2)
+            with c_nlp1:
+                st.plotly_chart(plot_sentiment_donut(reviews_data["sentiment_counts"]), use_container_width=True)
+
+            with c_nlp2:
+                if not reviews_data["aspect_summary"].empty:
+                    st.plotly_chart(plot_aspect_radar(reviews_data["aspect_summary"]), use_container_width=True)
+                else:
+                    st.info("No specific hardware aspects detected in the reviews.")
+
+            # Aspect Details Table
+            if not reviews_data["aspect_summary"].empty:
+                st.markdown("##### 🔍 Aspect Polarity Leaderboard")
+                st.dataframe(
+                    reviews_data["aspect_summary"].rename(
+                        columns={
+                            "aspect": "Product Aspect",
+                            "mentions": "Total Mentions",
+                            "avg_sentiment_score": "Sentiment Polarity Score (-1 to +1)",
+                            "positive_mentions": "Positive Mentions",
+                            "negative_mentions": "Negative Mentions",
+                        }
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+            # Sample Quotes Section
+            st.markdown("##### 💬 Voice of Customer Highlights:")
+            q_col1, q_col2 = st.columns(2)
+            with q_col1:
+                st.markdown("**🟢 Positive Customer Quotes:**")
+                for q in reviews_data["positive_quotes"]:
+                    st.markdown(f"> *\"{q}\"*")
+            with q_col2:
+                st.markdown("**🔴 Negative Customer Quotes (Areas for Improvement):**")
+                for q in reviews_data["negative_quotes"]:
+                    st.markdown(f"> *\"{q}\"*")
+
+        else:
+            st.info("💡 To view NLP & Aspect Intelligence, select or map a text column in the mapping expander above.")
+
+    # ==========================================
+    # TAB 3: CUSTOMER BEHAVIORAL & RFM
+    # ==========================================
+    with tab3:
+        if rfm_df is not None and rfm_metrics is not None:
+            st.markdown("#### 👥 Customer Behavioral RFM Segmentation")
+            st.caption("Quantile-based Recency, Frequency, and Monetary scoring segmenting customers into actionable behavioral clusters.")
+
+            rfm_c1, rfm_c2, rfm_c3, rfm_c4 = st.columns(4)
+            with rfm_c1:
+                render_metric_card("Total Customers", f"{rfm_metrics['total_customers']:,}", card_type="default")
+            with rfm_c2:
+                render_metric_card("Champions Count", f"{rfm_metrics['champions_count']:,}", card_type="success")
+            with rfm_c3:
+                render_metric_card("At-Risk Count", f"{rfm_metrics['at_risk_count']:,}", card_type="danger")
+            with rfm_c4:
+                render_metric_card("Avg Customer Spend", f"${rfm_metrics['avg_monetary']:,.2f}", card_type="default")
+
+            rfm_v1, rfm_v2 = st.columns(2)
+            with rfm_v1:
+                st.plotly_chart(plot_segment_distribution(rfm_metrics["segment_summary"]), use_container_width=True)
+            with rfm_v2:
+                st.plotly_chart(plot_rfm_scatter(rfm_df), use_container_width=True)
+
+            st.markdown("##### 🏅 VIP Customer Leaderboard")
+            top_rfm = rfm_df.sort_values("monetary_total", ascending=False).head(10)
+            st.dataframe(top_rfm, use_container_width=True, hide_index=True)
+
+        else:
+            st.info("💡 To view RFM Segmentation, map a **Customer ID** column along with a **Date** and **Revenue** column above.")
+
+    # ==========================================
+    # TAB 4: DATA EXPLORER & ENRICHED EXPORT
+    # ==========================================
+    with tab4:
+        st.markdown("#### 📁 Interactive Data Explorer & Statistical Profiling")
+
+        # Correlation Heatmap
+        if not table_profile["corr_matrix"].empty:
+            st.plotly_chart(plot_correlation_heatmap(table_profile["corr_matrix"]), use_container_width=True)
+
+        # Summary Statistics
+        if not table_profile["summary_stats"].empty:
+            st.markdown("##### 🔢 Numerical Feature Summary Statistics")
+            st.dataframe(table_profile["summary_stats"], use_container_width=True, hide_index=True)
+
+        # Enriched Data Table
+        st.markdown("##### 📄 Enriched Dataset Preview (with ML Predictions & Aspect Tags)")
+        st.dataframe(enriched_df.head(100), use_container_width=True)
+
+        # One-Click Export
+        csv_buffer = io.StringIO()
+        enriched_df.to_csv(csv_buffer, index=False)
+        csv_bytes = csv_buffer.getvalue().encode("utf-8")
+
+        st.download_button(
+            label="📥 Download Full Enriched Dataset (CSV)",
+            data=csv_bytes,
+            file_name="enriched_analyzed_dataset.csv",
+            mime="text/csv",
+            type="primary",
+            help="Download the complete dataset enriched with sentiment predictions, aspect tags, and calculated metrics.",
+        )
+
+
+render_custom_analyzer_page()
