@@ -67,7 +67,7 @@ def detect_schema(df: pd.DataFrame) -> Dict[str, Any]:
             break
 
     # 3. Date Column
-    for kw in ["order_date", "review_date", "ticket_date", "signup_date", "last_order_date", "date", "created_at", "timestamp"]:
+    for kw in ["order_date", "review_date", "ticket_date", "signup_date", "last_order_date", "dispatch_date", "return_date", "campaign_date", "session_date", "promo_month", "date", "created_at", "timestamp"]:
         for col, low in cols_lower.items():
             if kw in low:
                 detected["date_col"] = col
@@ -89,7 +89,11 @@ def detect_schema(df: pd.DataFrame) -> Dict[str, Any]:
                 continue
 
     # 4. Revenue / Amount / Spend Column (prioritize total amount / revenue over unit price)
-    for kw in ["total_amount", "revenue", "lifetime_spend", "mrr_amount", "gross_spend", "net_spend", "sales", "total", "amount", "spend", "selling_price", "unit_price", "price"]:
+    for kw in [
+        "total_amount", "gross_revenue_driven", "revenue", "lifetime_spend", "mrr_amount",
+        "gross_spend", "net_spend", "ad_spend", "refund_amount", "cart_value", "shipping_cost",
+        "discount_cost", "sales", "total", "amount", "spend", "selling_price", "unit_price", "price"
+    ]:
         for col, low in cols_lower.items():
             if low.endswith("_id") or low == "id":
                 continue
@@ -101,31 +105,37 @@ def detect_schema(df: pd.DataFrame) -> Dict[str, Any]:
 
     # 5. Customer ID Column
     for col, low in cols_lower.items():
-        if any(kw in low for kw in ["customer_id", "user_id", "client_id", "shopper_id", "cust_id", "account_id"]):
+        if any(kw in low for kw in ["customer_id", "visitor_id", "user_id", "client_id", "shopper_id", "cust_id", "account_id"]):
             detected["customer_col"] = col
             break
 
     # 6. Product / SKU / Item Column
     for col, low in cols_lower.items():
-        if any(kw in low for kw in ["product_name", "product_id", "sku", "item_name", "item_id", "title"]):
+        if any(kw in low for kw in ["product_name", "campaign_name", "promo_code", "product_id", "sku", "item_name", "item_id", "title"]):
             detected["product_col"] = col
             break
 
     # 7. Category Column
     for col, low in cols_lower.items():
-        if any(kw in low for kw in ["category", "dept", "department", "channel", "plan_tier", "tier", "segment"]):
+        if any(kw in low for kw in [
+            "category", "dept", "department", "channel", "carrier", "return_reason",
+            "dropoff_stage", "traffic_source", "discount_type", "landing_page", "plan_tier", "tier", "segment"
+        ]):
             detected["category_col"] = col
             break
 
     # 8. Status / Return / Churn Column
     for col, low in cols_lower.items():
-        if any(kw in low for kw in ["return_status", "churn_status", "status", "priority", "loyalty_tier"]):
+        if any(kw in low for kw in ["return_status", "churn_status", "delivery_status", "converted", "status", "priority", "loyalty_tier"]):
             detected["status_col"] = col
             break
 
-    # 9. Quantity Column
+    # 9. Quantity / Volume Column
     for col, low in cols_lower.items():
-        if any(kw in low for kw in ["quantity", "qty", "units_sold", "units", "total_orders"]):
+        if any(kw in low for kw in [
+            "quantity", "qty", "units_sold", "units", "items_in_cart", "redemptions_count",
+            "conversions", "clicks", "impressions", "total_orders", "pages_viewed"
+        ]):
             if pd.api.types.is_numeric_dtype(df[col]):
                 detected["quantity_col"] = col
                 break

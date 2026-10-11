@@ -62,8 +62,9 @@ def render_custom_analyzer_page():
         <div style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #ffffff; padding: 22px 28px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #334155;">
             <h2 style="margin: 0; font-size: 1.8rem; font-weight: 800; color: #f8fafc;">📁 Custom Data Upload & Auto-Dashboard Generator</h2>
             <p style="margin: 8px 0 0 0; font-size: 0.95rem; color: #cbd5e1; line-height: 1.5;">
-                Upload your company's CSV or Excel data — or load one of our <strong>6 enterprise business templates</strong>. 
-                Our platform automatically inspects the schema, executes batch NLP sentiment classification, computes commercial KPIs and RFM customer profiles, and generates an interactive executive dashboard.
+                Upload your company's CSV or Excel data — or choose from our comprehensive library of <strong>12 enterprise business templates</strong> 
+                across Sales, Voice of Customer, RFM, Supply Chain, and Marketing. Our platform automatically inspects the schema, executes batch NLP 
+                sentiment classification, computes commercial KPIs, and generates an interactive executive dashboard.
             </p>
         </div>
         """,
@@ -76,34 +77,48 @@ def render_custom_analyzer_page():
     st.markdown("##### 📥 Step 1: Select Data Ingestion Source")
     ingest_mode = st.radio(
         "Choose how you want to provide data:",
-        ["📋 Use Enterprise Business Template", "📂 Upload Custom File (CSV or Excel)"],
+        ["📋 Use Enterprise Business Template (12 Ready-to-Use)", "📂 Upload Custom File (CSV or Excel)"],
         horizontal=True,
     )
 
     active_df = None
     data_source_label = ""
 
-    if ingest_mode == "📋 Use Enterprise Business Template":
+    if ingest_mode.startswith("📋 Use Enterprise Business Template"):
         st.markdown(
             """
             <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
-                <strong style="color: #1e293b; font-size: 0.95rem;">Select from 6 Pre-Configured Enterprise Templates:</strong>
-                <p style="font-size: 0.85rem; color: #64748b; margin: 4px 0 12px 0;">
-                    Each template is designed for a specific business vertical. You can test it immediately with 1 click, or download the blank CSV schema to fill with your own records.
+                <strong style="color: #1e293b; font-size: 0.95rem;">Select from 12 Pre-Configured Enterprise Business Templates:</strong>
+                <p style="font-size: 0.85rem; color: #64748b; margin: 4px 0 0 0;">
+                    Each template is tailored for a specific e-commerce workflow. Test it with 1-click synthetic data generation, or download the blank CSV schema to populate with your own records.
                 </p>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-        template_keys = list(templates.keys())
-        template_names = [f"{templates[k]['icon']} {templates[k]['name']} ({templates[k]['category']})" for k in template_keys]
-        selected_idx = st.selectbox(
-            "Choose a Business Template:",
-            range(len(template_keys)),
-            format_func=lambda i: template_names[i],
-        )
-        selected_key = template_keys[selected_idx]
+        all_categories = ["All Categories"] + sorted(list(set(t["category"] for t in templates.values())))
+        f_col1, f_col2 = st.columns([1, 2])
+        with f_col1:
+            selected_cat = st.selectbox("Filter by Domain / Vertical:", all_categories)
+
+        filtered_keys = [
+            k for k, t in templates.items()
+            if selected_cat == "All Categories" or t["category"] == selected_cat
+        ]
+
+        template_display_names = [
+            f"{templates[k]['icon']} {templates[k]['name']} — [{templates[k]['category']}]"
+            for k in filtered_keys
+        ]
+
+        with f_col2:
+            selected_idx = st.selectbox(
+                "Choose Template Schema:",
+                range(len(filtered_keys)),
+                format_func=lambda i: template_display_names[i],
+            )
+        selected_key = filtered_keys[selected_idx]
         t_meta = templates[selected_key]
 
         col_t1, col_t2 = st.columns([3, 1])

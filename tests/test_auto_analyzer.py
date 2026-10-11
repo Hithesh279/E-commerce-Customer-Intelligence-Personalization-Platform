@@ -21,21 +21,28 @@ from src.analytics.templates import (
 
 
 def test_get_available_templates():
-    """Verify that all 6 enterprise business templates are registered."""
+    """Verify that all 12 enterprise business templates are registered."""
     templates = get_available_templates()
-    assert len(templates) == 6
+    assert len(templates) == 12
     expected_keys = [
         "product_reviews",
-        "retail_transactions",
-        "customer_rfm",
-        "inventory_health",
         "support_tickets",
+        "retail_transactions",
         "subscription_churn",
+        "customer_rfm",
+        "cart_abandonment",
+        "inventory_health",
+        "shipping_logistics",
+        "product_returns",
+        "marketing_campaigns",
+        "promotions_discounts",
+        "web_traffic",
     ]
     for key in expected_keys:
         assert key in templates
         assert "name" in templates[key]
         assert "columns" in templates[key]
+        assert "category" in templates[key]
 
 
 def test_load_sample_templates_and_columns():
