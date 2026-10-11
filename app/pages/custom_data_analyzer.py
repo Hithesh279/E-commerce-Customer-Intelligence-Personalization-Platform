@@ -568,25 +568,38 @@ def render_custom_analyzer_page():
                         )
                     ),
                     use_container_width=True,
+                    key="custom_overview_rev_trend",
                 )
             elif reviews_data is not None:
-                st.plotly_chart(plot_sentiment_donut(reviews_data["sentiment_counts"]), use_container_width=True)
+                st.plotly_chart(
+                    plot_sentiment_donut(reviews_data["sentiment_counts"]),
+                    use_container_width=True,
+                    key="custom_overview_sentiment_donut",
+                )
             elif not table_profile["summary_stats"].empty:
                 num_col = table_profile["summary_stats"]["feature"].iloc[0]
                 fig_num = px.histogram(enriched_df, x=num_col, title=f"Distribution of {num_col}", template="plotly_white")
-                st.plotly_chart(fig_num, use_container_width=True)
+                st.plotly_chart(fig_num, use_container_width=True, key="custom_overview_numeric_hist")
             else:
                 st.info("No time series or numeric distribution data available.")
 
         with col_v2:
             if not txn_data["category_df"].empty:
-                st.plotly_chart(plot_category_sales(txn_data["category_df"]), use_container_width=True)
+                st.plotly_chart(
+                    plot_category_sales(txn_data["category_df"]),
+                    use_container_width=True,
+                    key="custom_overview_category_sales",
+                )
             elif reviews_data is not None and not reviews_data["aspect_summary"].empty:
-                st.plotly_chart(plot_aspect_radar(reviews_data["aspect_summary"]), use_container_width=True)
+                st.plotly_chart(
+                    plot_aspect_radar(reviews_data["aspect_summary"]),
+                    use_container_width=True,
+                    key="custom_overview_aspect_radar",
+                )
             elif len(table_profile["summary_stats"]) > 1:
                 num_col2 = table_profile["summary_stats"]["feature"].iloc[1]
                 fig_num2 = px.box(enriched_df, y=num_col2, title=f"Boxplot of {num_col2}", template="plotly_white")
-                st.plotly_chart(fig_num2, use_container_width=True)
+                st.plotly_chart(fig_num2, use_container_width=True, key="custom_overview_numeric_box")
             else:
                 st.info("No category or aspect distribution data available.")
 
@@ -605,11 +618,19 @@ def render_custom_analyzer_page():
 
             c_nlp1, c_nlp2 = st.columns(2)
             with c_nlp1:
-                st.plotly_chart(plot_sentiment_donut(reviews_data["sentiment_counts"]), use_container_width=True)
+                st.plotly_chart(
+                    plot_sentiment_donut(reviews_data["sentiment_counts"]),
+                    use_container_width=True,
+                    key="custom_nlp_sentiment_donut",
+                )
 
             with c_nlp2:
                 if not reviews_data["aspect_summary"].empty:
-                    st.plotly_chart(plot_aspect_radar(reviews_data["aspect_summary"]), use_container_width=True)
+                    st.plotly_chart(
+                        plot_aspect_radar(reviews_data["aspect_summary"]),
+                        use_container_width=True,
+                        key="custom_nlp_aspect_radar",
+                    )
                 else:
                     st.info("No specific hardware aspects detected in the reviews.")
 
@@ -665,9 +686,17 @@ def render_custom_analyzer_page():
 
             rfm_v1, rfm_v2 = st.columns(2)
             with rfm_v1:
-                st.plotly_chart(plot_segment_distribution(rfm_metrics["segment_summary"]), use_container_width=True)
+                st.plotly_chart(
+                    plot_segment_distribution(rfm_metrics["segment_summary"]),
+                    use_container_width=True,
+                    key="custom_rfm_segment_distribution",
+                )
             with rfm_v2:
-                st.plotly_chart(plot_rfm_scatter(rfm_df), use_container_width=True)
+                st.plotly_chart(
+                    plot_rfm_scatter(rfm_df),
+                    use_container_width=True,
+                    key="custom_rfm_scatter",
+                )
 
             st.markdown("##### 🏅 VIP Customer Leaderboard")
             top_rfm = rfm_df.sort_values("monetary_total", ascending=False).head(10)
@@ -684,7 +713,11 @@ def render_custom_analyzer_page():
 
         # Correlation Heatmap
         if not table_profile["corr_matrix"].empty:
-            st.plotly_chart(plot_correlation_heatmap(table_profile["corr_matrix"]), use_container_width=True)
+            st.plotly_chart(
+                plot_correlation_heatmap(table_profile["corr_matrix"]),
+                use_container_width=True,
+                key="custom_corr_heatmap",
+            )
 
         # Summary Statistics
         if not table_profile["summary_stats"].empty:
