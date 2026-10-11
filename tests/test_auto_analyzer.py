@@ -238,3 +238,61 @@ def test_multi_file_relational_auto_join():
     assert "tier" in joined_df.columns
     assert "orders.csv" in summary
 
+
+def test_generate_reports_suite():
+    """Verify HTML, Excel workbook, and Markdown report generation."""
+    import io
+    from src.analytics.report_generator import (
+        generate_excel_analytical_workbook,
+        generate_executive_html_report,
+        generate_markdown_report,
+    )
+
+    df = pd.DataFrame({
+        "order_id": [1, 2],
+        "amount": [100.0, 150.0],
+        "sentiment": ["Positive", "Negative"],
+    })
+    txn_data = {
+        "total_revenue": 250.0,
+        "total_orders": 2,
+        "aov": 125.0,
+        "return_rate": 0.0,
+        "category_df": pd.DataFrame({"category": ["Tech"], "revenue": [250.0], "share_pct": [100.0], "orders": [2]}),
+    }
+    schema_info = {"modalities": {"has_transactions": True}}
+
+    # 1. HTML Report
+    html_rep = generate_executive_html_report(
+        df=df,
+        data_source_label="Test Dataset",
+        schema_info=schema_info,
+        txn_data=txn_data,
+    )
+    assert "<!DOCTYPE html>" in html_rep
+    assert "Executive Intelligence & Analytics Brief" in html_rep
+    assert "$250.00" in html_rep
+    assert "@media print" in html_rep
+
+    # 2. Excel Analytical Workbook
+    excel_bytes = generate_excel_analytical_workbook(
+        enriched_df=df,
+        data_source_label="Test Dataset",
+        txn_data=txn_data,
+    )
+    assert len(excel_bytes) > 0
+    # Read back sheets
+    excel_file = pd.ExcelFile(io.BytesIO(excel_bytes))
+    assert "Executive_Summary" in excel_file.sheet_names
+    assert "Enriched_Dataset" in excel_file.sheet_names
+
+    # 3. Markdown Report
+    md_rep = generate_markdown_report(
+        df=df,
+        data_source_label="Test Dataset",
+        txn_data=txn_data,
+    )
+    assert "# Executive Analytics Briefing" in md_rep
+    assert "$250.00" in md_rep
+
+

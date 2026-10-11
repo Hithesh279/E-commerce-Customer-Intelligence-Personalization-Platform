@@ -418,15 +418,43 @@ def render_custom_analyzer_page():
         # Generic profiling
         table_profile = profile_generic_table(enriched_df)
 
-    # 4 Dynamic Dashboard Tabs
+    from src.analytics.report_generator import (
+        generate_excel_analytical_workbook,
+        generate_executive_html_report,
+        generate_markdown_report,
+    )
+
+    # 4 Dynamic Dashboard Tabs & Top-level Quick Report Download
     st.markdown("---")
-    st.markdown(f"### 📈 Interactive Auto-Dashboard: {data_source_label}")
+    header_col, dl_col = st.columns([3, 2])
+    with header_col:
+        st.markdown(f"### 📈 Interactive Auto-Dashboard: {data_source_label}")
+    with dl_col:
+        st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
+        quick_html = generate_executive_html_report(
+            df=enriched_df,
+            data_source_label=data_source_label,
+            schema_info=schema_info,
+            txn_data=txn_data,
+            reviews_data=reviews_data,
+            rfm_metrics=rfm_metrics,
+            rfm_df=rfm_df,
+        )
+        st.download_button(
+            label="📄 1-Click Download Executive Report (HTML / PDF)",
+            data=quick_html.encode("utf-8"),
+            file_name=f"executive_report_{datetime.now().strftime('%Y%m%d_%H%M')}.html",
+            mime="text/html",
+            type="primary",
+            use_container_width=True,
+            help="Download printable executive report. Open in any browser and press Ctrl+P to save as PDF.",
+        )
 
     tab1, tab2, tab3, tab4 = st.tabs([
         "📈 Executive KPIs & Trends",
         "🧠 NLP & Aspect Intelligence",
         "👥 Customer Behavioral & RFM",
-        "📁 Data Explorer & Enriched Export",
+        "📁 Data Explorer & Download Reports",
     ])
 
     # ==========================================
@@ -666,19 +694,84 @@ def render_custom_analyzer_page():
         st.markdown("##### 📄 Enriched Dataset Preview (with ML Predictions & Aspect Tags)")
         st.dataframe(enriched_df.head(100), use_container_width=True)
 
-        # One-Click Export
-        csv_buffer = io.StringIO()
-        enriched_df.to_csv(csv_buffer, index=False)
-        csv_bytes = csv_buffer.getvalue().encode("utf-8")
+        # Report and Dataset Download Suite
+        st.markdown("---")
+        st.markdown("### 📥 Download Generated Executive Reports & Datasets")
+        st.caption("Download self-contained briefing documents, multi-tab analytical Excel workbooks, or raw enriched data:")
 
-        st.download_button(
-            label="📥 Download Full Enriched Dataset (CSV)",
-            data=csv_bytes,
-            file_name="enriched_analyzed_dataset.csv",
-            mime="text/csv",
-            type="primary",
-            help="Download the complete dataset enriched with sentiment predictions, aspect tags, and calculated metrics.",
-        )
+        rep_col1, rep_col2, rep_col3, rep_col4 = st.columns(4)
+
+        with rep_col1:
+            html_rep = generate_executive_html_report(
+                df=enriched_df,
+                data_source_label=data_source_label,
+                schema_info=schema_info,
+                txn_data=txn_data,
+                reviews_data=reviews_data,
+                rfm_metrics=rfm_metrics,
+                rfm_df=rfm_df,
+            )
+            st.download_button(
+                label="📄 Executive Report (HTML / PDF)",
+                data=html_rep.encode("utf-8"),
+                file_name=f"executive_analytics_report_{datetime.now().strftime('%Y%m%d_%H%M')}.html",
+                mime="text/html",
+                type="primary",
+                help="Download styled briefing report. Open in any browser and press Ctrl+P to save as PDF.",
+                use_container_width=True,
+            )
+            st.caption("🖨️ *Printable: Ctrl+P to save as PDF.*")
+
+        with rep_col2:
+            excel_bytes = generate_excel_analytical_workbook(
+                enriched_df=enriched_df,
+                data_source_label=data_source_label,
+                txn_data=txn_data,
+                reviews_data=reviews_data,
+                rfm_df=rfm_df,
+                rfm_metrics=rfm_metrics,
+            )
+            st.download_button(
+                label="📊 Analytical Workbook (Excel)",
+                data=excel_bytes,
+                file_name=f"analytical_workbook_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                help="Multi-tab Excel workbook with Executive Summary, Enriched Data, Trends, Aspects, and RFM tabs.",
+                use_container_width=True,
+            )
+            st.caption("📑 *5 tabs including Star-Schema summaries.*")
+
+        with rep_col3:
+            md_rep = generate_markdown_report(
+                df=enriched_df,
+                data_source_label=data_source_label,
+                txn_data=txn_data,
+                reviews_data=reviews_data,
+                rfm_metrics=rfm_metrics,
+            )
+            st.download_button(
+                label="📝 Briefing Summary (Markdown)",
+                data=md_rep.encode("utf-8"),
+                file_name=f"executive_summary_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
+                mime="text/markdown",
+                help="Structured Markdown briefing document with formatted KPI tables.",
+                use_container_width=True,
+            )
+            st.caption("📝 *GitHub-flavored Markdown format.*")
+
+        with rep_col4:
+            csv_buffer = io.StringIO()
+            enriched_df.to_csv(csv_buffer, index=False)
+            csv_bytes = csv_buffer.getvalue().encode("utf-8")
+            st.download_button(
+                label="📁 Enriched Raw Data (CSV)",
+                data=csv_bytes,
+                file_name=f"enriched_dataset_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                mime="text/csv",
+                help="Complete dataset enriched with ML predictions and extracted aspect tags.",
+                use_container_width=True,
+            )
+            st.caption("💾 *Full dataset with predicted tags.*")
 
 
 render_custom_analyzer_page()
