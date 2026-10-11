@@ -50,7 +50,7 @@ def render_product_intelligence_page():
         if not risk_products.empty:
             st.dataframe(
                 risk_products[["product_id", "product_name", "units_sold", "average_rating", "return_rate"]].head(3),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
     with d_col2:
@@ -58,7 +58,7 @@ def render_product_intelligence_page():
         if not gem_products.empty:
             st.dataframe(
                 gem_products[["product_id", "product_name", "units_sold", "average_rating", "return_rate"]].head(3),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 
@@ -79,7 +79,7 @@ def render_product_intelligence_page():
     )
     # Add horizontal threshold lines
     fig.add_hline(y=3.0, line_dash="dash", line_color="red", annotation_text="Dissatisfaction Threshold (3.0★)")
-    st.plotly_chart(fig, use_container_width=True, key="prod_intel_scatter")
+    st.plotly_chart(fig, width="stretch", key="prod_intel_scatter")
 
     st.markdown("---")
 
@@ -110,13 +110,32 @@ def render_product_intelligence_page():
     p_desc = prod_row.get("product_description", f"High performance catalog product in category {prod_row.get('category', 'General')}.")
     st.markdown(f"**Description:** {p_desc}")
 
-    # Similar products via Content recommender
+    # Similar products via Content recommender or catalog category matching
     recs_sys = load_recommendation_system()
     content_engine = recs_sys["content"]
-    similar_items = content_engine.recommend_similar_products(selected_pid, top_k=4)
+    similar_items = []
+    if selected_pid in getattr(content_engine, "product_index", getattr(content_engine, "prod_to_idx", {})):
+        similar_items = content_engine.recommend_similar_products(selected_pid, top_k=4)
+
+    if not similar_items:
+        # Fallback to similar category items from active catalog
+        same_cat = filtered_df[filtered_df["product_id"] != selected_pid]
+        matched = same_cat[same_cat["category"] == prod_row["category"]].head(4)
+        if matched.empty:
+            matched = same_cat.head(4)
+        if not matched.empty:
+            similar_items = [
+                {
+                    "product_name": r["product_name"],
+                    "category": r["category"],
+                    "price": r["price"],
+                    "score": round(float(r["average_rating"] / 5.0), 3),
+                }
+                for _, r in matched.iterrows()
+            ]
 
     if similar_items:
-        st.markdown("###### Top Similar Catalog Products (TF-IDF Cosine Similarity):")
+        st.markdown("###### Top Similar Catalog Products:")
         cols = st.columns(len(similar_items))
         for idx, itm in enumerate(similar_items):
             with cols[idx]:
@@ -125,7 +144,7 @@ def render_product_intelligence_page():
                     <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:12px; height:140px;">
                         <strong style="font-size:0.85rem;">{itm['product_name']}</strong><br>
                         <span style="font-size:0.75rem; color:#64748b;">{itm['category']} • ${itm['price']:.2f}</span><br>
-                        <span style="font-size:0.75rem; color:#2563eb; font-weight:600;">Similarity: {itm['score']:.3f}</span>
+                        <span style="font-size:0.75rem; color:#2563eb; font-weight:600;">Match Index: {itm['score']:.3f}</span>
                     </div>
                     """,
                     unsafe_allow_html=True,

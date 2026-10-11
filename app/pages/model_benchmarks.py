@@ -33,7 +33,7 @@ def render_model_benchmarks_page():
 
         comp_data = rec_metrics.get("results_comparison", {})
         df_comp = pd.DataFrame.from_dict(comp_data, orient="index")
-        st.dataframe(df_comp.style.highlight_max(axis=0, color="#dcfce7"), use_container_width=True)
+        st.dataframe(df_comp.style.highlight_max(axis=0, color="#dcfce7"), width="stretch")
 
         winner = rec_metrics.get("winning_model", "Hybrid Model")
         st.success(f"🏅 **Winning Strategy: {winner}** — {rec_metrics.get('rationale', '')}")
@@ -64,7 +64,7 @@ def render_model_benchmarks_page():
         cls_report = sent_metrics.get("classification_report", {})
         if cls_report:
             df_report = pd.DataFrame(cls_report).transpose()
-            st.dataframe(df_report.style.format(precision=3), use_container_width=True)
+            st.dataframe(df_report.style.format(precision=3), width="stretch")
     else:
         st.warning("Sentiment metrics not found.")
 

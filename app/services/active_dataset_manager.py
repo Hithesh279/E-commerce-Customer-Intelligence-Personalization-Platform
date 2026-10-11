@@ -774,7 +774,7 @@ def render_global_active_dataset_banner(page_id: str = "banner"):
                 mime="text/html",
                 type="primary",
                 key=f"{page_id}_dl_html",
-                use_container_width=True,
+                width="stretch",
             )
             st.caption("🖨️ *Printable: Ctrl+P to save as PDF.*")
 
@@ -785,7 +785,7 @@ def render_global_active_dataset_banner(page_id: str = "banner"):
                 file_name=reports["excel_filename"],
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key=f"{page_id}_dl_excel",
-                use_container_width=True,
+                width="stretch",
             )
             st.caption("📈 *5 sheets: Summary, Trends, RFM, etc.*")
 
@@ -796,7 +796,7 @@ def render_global_active_dataset_banner(page_id: str = "banner"):
                 file_name=reports["md_filename"],
                 mime="text/markdown",
                 key=f"{page_id}_dl_md",
-                use_container_width=True,
+                width="stretch",
             )
             st.caption("📋 *Formatted KPI markdown tables.*")
 
@@ -807,7 +807,7 @@ def render_global_active_dataset_banner(page_id: str = "banner"):
                 file_name=reports["csv_filename"],
                 mime="text/csv",
                 key=f"{page_id}_dl_csv",
-                use_container_width=True,
+                width="stretch",
             )
             st.caption("💾 *Complete analytical table.*")
 

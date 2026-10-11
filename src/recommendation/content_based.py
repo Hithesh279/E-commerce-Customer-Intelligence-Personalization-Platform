@@ -23,6 +23,11 @@ class ContentBasedRecommender:
         self.prod_to_idx: Dict[str, int] = {}
         self.idx_to_prod: Dict[int, str] = {}
 
+    @property
+    def product_index(self) -> Dict[str, int]:
+        """Convenience alias for prod_to_idx dictionary."""
+        return self.prod_to_idx
+
     def fit(self, products_df: pd.DataFrame) -> "ContentBasedRecommender":
         """
         Fit TF-IDF matrix on product descriptions, categories, and brand tags.

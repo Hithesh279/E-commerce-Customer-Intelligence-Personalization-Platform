@@ -185,7 +185,7 @@ def main():
                 "Neutral": int(kpis["total_orders"] * (kpis.get("neutral_sentiment_pct", 10.0) / 100)),
                 "Negative": int(kpis["total_orders"] * (kpis["negative_sentiment_pct"] / 100)),
             }
-            st.plotly_chart(plot_sentiment_donut(sent_counts), use_container_width=True, key="main_voc_donut")
+            st.plotly_chart(plot_sentiment_donut(sent_counts), width="stretch", key="main_voc_donut")
 
         with c_right:
             if reviews_data is not None and not reviews_data["aspect_summary"].empty:
@@ -201,7 +201,7 @@ def main():
                 asp_summary = pd.DataFrame()
 
             if not asp_summary.empty:
-                st.plotly_chart(plot_aspect_radar(asp_summary), use_container_width=True, key="main_voc_radar")
+                st.plotly_chart(plot_aspect_radar(asp_summary), width="stretch", key="main_voc_radar")
             else:
                 st.info("Aspect extraction processing complete. Summary will render when aspects are detected.")
 
@@ -222,7 +222,7 @@ def main():
                 }
                 disp_df = asp_summary.rename(columns={k: v for k, v in rename_cols.items() if k in asp_summary.columns})
                 sort_col = "Score (-1 to +1)" if "Score (-1 to +1)" in disp_df.columns else disp_df.columns[1]
-                st.dataframe(disp_df.sort_values(sort_col, ascending=False), use_container_width=True, hide_index=True)
+                st.dataframe(disp_df.sort_values(sort_col, ascending=False), width="stretch", hide_index=True)
             else:
                 st.info("No aspect breakdown available.")
 
@@ -303,14 +303,14 @@ def main():
         # Charts Row
         c_left, c_right = st.columns(2)
         with c_left:
-            st.plotly_chart(plot_revenue_trend(bundles["monthly_trend"]), use_container_width=True, key="main_revenue_trend")
+            st.plotly_chart(plot_revenue_trend(bundles["monthly_trend"]), width="stretch", key="main_revenue_trend")
         with c_right:
-            st.plotly_chart(plot_category_sales(bundles["cat_perf"]), use_container_width=True, key="main_category_sales")
+            st.plotly_chart(plot_category_sales(bundles["cat_perf"]), width="stretch", key="main_category_sales")
 
         # Segment and Top SKUs Row
         s_left, s_right = st.columns(2)
         with s_left:
-            st.plotly_chart(plot_segment_distribution(bundles["seg_summary"]), use_container_width=True, key="main_segment_dist")
+            st.plotly_chart(plot_segment_distribution(bundles["seg_summary"]), width="stretch", key="main_segment_dist")
         with s_right:
             st.markdown("##### 🏆 Top Revenue-Generating Products")
             top_prods = bundles["prod_perf"].sort_values("net_revenue", ascending=False).head(5)
@@ -326,7 +326,7 @@ def main():
                         "return_rate": "Return %",
                     }
                 ),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 

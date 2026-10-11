@@ -98,7 +98,7 @@ def render_overview_page():
                 "Neutral": int(kpis["total_orders"] * (kpis.get("neutral_sentiment_pct", 10.0) / 100)),
                 "Negative": int(kpis["total_orders"] * (kpis["negative_sentiment_pct"] / 100)),
             }
-            st.plotly_chart(plot_sentiment_donut(sent_counts), use_container_width=True, key="overview_voc_donut")
+            st.plotly_chart(plot_sentiment_donut(sent_counts), width="stretch", key="overview_voc_donut")
 
         with c_right:
             if reviews_data is not None and not reviews_data["aspect_summary"].empty:
@@ -114,7 +114,7 @@ def render_overview_page():
                 asp_summary = pd.DataFrame()
 
             if not asp_summary.empty:
-                st.plotly_chart(plot_aspect_radar(asp_summary), use_container_width=True, key="overview_voc_radar")
+                st.plotly_chart(plot_aspect_radar(asp_summary), width="stretch", key="overview_voc_radar")
             else:
                 st.info("Aspect extraction processing complete.")
 
@@ -135,7 +135,7 @@ def render_overview_page():
                 }
                 disp_df = asp_summary.rename(columns={k: v for k, v in rename_cols.items() if k in asp_summary.columns})
                 sort_col = "Score (-1 to +1)" if "Score (-1 to +1)" in disp_df.columns else disp_df.columns[1]
-                st.dataframe(disp_df.sort_values(sort_col, ascending=False), use_container_width=True, hide_index=True)
+                st.dataframe(disp_df.sort_values(sort_col, ascending=False), width="stretch", hide_index=True)
             else:
                 st.info("No aspect breakdown available.")
 
@@ -220,14 +220,14 @@ def render_overview_page():
         # Visuals Row
         col_left, col_right = st.columns(2)
         with col_left:
-            st.plotly_chart(plot_revenue_trend(bundles["monthly_trend"]), use_container_width=True, key="overview_rev_trend")
+            st.plotly_chart(plot_revenue_trend(bundles["monthly_trend"]), width="stretch", key="overview_rev_trend")
         with col_right:
-            st.plotly_chart(plot_category_sales(bundles["cat_perf"]), use_container_width=True, key="overview_category_sales")
+            st.plotly_chart(plot_category_sales(bundles["cat_perf"]), width="stretch", key="overview_category_sales")
 
         # Segment and Category Row
         col_seg, col_top = st.columns(2)
         with col_seg:
-            st.plotly_chart(plot_segment_distribution(bundles["seg_summary"]), use_container_width=True, key="overview_segment_dist")
+            st.plotly_chart(plot_segment_distribution(bundles["seg_summary"]), width="stretch", key="overview_segment_dist")
         with col_top:
             st.markdown("##### 🏆 Top 5 Revenue-Generating Products")
             top_prods = bundles["prod_perf"].sort_values("net_revenue", ascending=False).head(5)
@@ -243,7 +243,7 @@ def render_overview_page():
                         "return_rate": "Return %",
                     }
                 ),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 

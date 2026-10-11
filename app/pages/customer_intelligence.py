@@ -47,7 +47,7 @@ def render_customer_intelligence_page():
                 "avg_return_rate": "Return Rate %",
             }
         ),
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 
@@ -66,7 +66,7 @@ def render_customer_intelligence_page():
         template="plotly_white",
         height=380,
     )
-    st.plotly_chart(fig, use_container_width=True, key="cust_intel_rfm_scatter")
+    st.plotly_chart(fig, width="stretch", key="cust_intel_rfm_scatter")
 
     st.markdown("---")
 

@@ -185,7 +185,7 @@ def render_sidebar_status():
     )
 
     if is_custom:
-        if st.sidebar.button("↺ Reset to Demo Store Data", key="sidebar_btn_reset_default", use_container_width=True):
+        if st.sidebar.button("↺ Reset to Demo Store Data", key="sidebar_btn_reset_default", width="stretch"):
             reset_to_default_demo_dataset()
             st.session_state["_sb_template_pick"] = "(Current Active Dataset)"
             st.rerun()
@@ -204,7 +204,7 @@ def render_sidebar_status():
             mime="text/html",
             type="primary",
             key="sb_dl_html",
-            use_container_width=True,
+            width="stretch",
         )
         st.download_button(
             label="📊 Analytical Excel (.xlsx)",
@@ -212,7 +212,7 @@ def render_sidebar_status():
             file_name=rep["excel_filename"],
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key="sb_dl_excel",
-            use_container_width=True,
+            width="stretch",
         )
         st.download_button(
             label="📝 Executive Briefing (.md)",
@@ -220,7 +220,7 @@ def render_sidebar_status():
             file_name=rep["md_filename"],
             mime="text/markdown",
             key="sb_dl_md",
-            use_container_width=True,
+            width="stretch",
         )
         st.download_button(
             label="📁 Enriched Data (.csv)",
@@ -228,7 +228,7 @@ def render_sidebar_status():
             file_name=rep["csv_filename"],
             mime="text/csv",
             key="sb_dl_csv",
-            use_container_width=True,
+            width="stretch",
         )
 
     st.sidebar.markdown("---")

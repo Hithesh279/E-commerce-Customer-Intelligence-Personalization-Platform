@@ -48,7 +48,7 @@ def render_nlp_insights_page():
 
     col1, col2 = st.columns([1, 1])
     with col1:
-        st.plotly_chart(plot_aspect_radar(aspect_summary), use_container_width=True, key="nlp_insights_radar")
+        st.plotly_chart(plot_aspect_radar(aspect_summary), width="stretch", key="nlp_insights_radar")
     with col2:
         st.markdown("##### 📋 Aspect Sentiment Polarity Summary")
         st.dataframe(
@@ -61,7 +61,7 @@ def render_nlp_insights_page():
                     "negative_pct": "Negative %",
                 }
             ).sort_values("Sentiment Score (-1 to +1)", ascending=False),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 

@@ -148,10 +148,10 @@ def render_custom_analyzer_page():
                 data=blank_csv,
                 file_name=f"{selected_key}_template.csv",
                 mime="text/csv",
-                use_container_width=True,
+                width="stretch",
             )
 
-        btn_load = st.button("⚡ Load & Analyze This Template", type="primary", use_container_width=False)
+        btn_load = st.button("⚡ Load & Analyze This Template", type="primary", width="content")
         if btn_load or f"template_{selected_key}_loaded" in st.session_state:
             st.session_state[f"template_{selected_key}_loaded"] = True
             active_df = load_sample_template(selected_key, n_records=150)
@@ -214,7 +214,7 @@ def render_custom_analyzer_page():
                 {"File Name": name, "Rows": len(df), "Columns": len(df.columns), "Size (KB)": round(df.memory_usage(deep=True).sum() / 1024, 1)}
                 for name, df in loaded_tables.items()
             ])
-            st.dataframe(multi_inv, use_container_width=True, hide_index=True)
+            st.dataframe(multi_inv, width="stretch", hide_index=True)
 
             is_compat, shared = check_schema_compatibility(loaded_tables)
             if len(loaded_tables) > 1:
@@ -283,7 +283,7 @@ def render_custom_analyzer_page():
                         {"File Name": name, "Rows": len(df), "Columns": len(df.columns), "Size (KB)": round(df.memory_usage(deep=True).sum() / 1024, 1)}
                         for name, df in scanned_tables.items()
                     ])
-                    st.dataframe(multi_inv, use_container_width=True, hide_index=True)
+                    st.dataframe(multi_inv, width="stretch", hide_index=True)
 
                     is_compat, shared = check_schema_compatibility(scanned_tables)
                     if len(scanned_tables) > 1:
@@ -469,7 +469,7 @@ def render_custom_analyzer_page():
             file_name=f"executive_report_{datetime.now().strftime('%Y%m%d_%H%M')}.html",
             mime="text/html",
             type="primary",
-            use_container_width=True,
+            width="stretch",
             help="Download printable executive report. Open in any browser and press Ctrl+P to save as PDF.",
         )
 
@@ -589,19 +589,19 @@ def render_custom_analyzer_page():
                             columns={"period": "year_month", "revenue": "total_revenue"}
                         )
                     ),
-                    use_container_width=True,
+                    width="stretch",
                     key="custom_overview_rev_trend",
                 )
             elif reviews_data is not None:
                 st.plotly_chart(
                     plot_sentiment_donut(reviews_data["sentiment_counts"]),
-                    use_container_width=True,
+                    width="stretch",
                     key="custom_overview_sentiment_donut",
                 )
             elif not table_profile["summary_stats"].empty:
                 num_col = table_profile["summary_stats"]["feature"].iloc[0]
                 fig_num = px.histogram(enriched_df, x=num_col, title=f"Distribution of {num_col}", template="plotly_white")
-                st.plotly_chart(fig_num, use_container_width=True, key="custom_overview_numeric_hist")
+                st.plotly_chart(fig_num, width="stretch", key="custom_overview_numeric_hist")
             else:
                 st.info("No time series or numeric distribution data available.")
 
@@ -609,26 +609,26 @@ def render_custom_analyzer_page():
             if not txn_data["category_df"].empty:
                 st.plotly_chart(
                     plot_category_sales(txn_data["category_df"]),
-                    use_container_width=True,
+                    width="stretch",
                     key="custom_overview_category_sales",
                 )
             elif reviews_data is not None and not reviews_data["aspect_summary"].empty:
                 st.plotly_chart(
                     plot_aspect_radar(reviews_data["aspect_summary"]),
-                    use_container_width=True,
+                    width="stretch",
                     key="custom_overview_aspect_radar",
                 )
             elif len(table_profile["summary_stats"]) > 1:
                 num_col2 = table_profile["summary_stats"]["feature"].iloc[1]
                 fig_num2 = px.box(enriched_df, y=num_col2, title=f"Boxplot of {num_col2}", template="plotly_white")
-                st.plotly_chart(fig_num2, use_container_width=True, key="custom_overview_numeric_box")
+                st.plotly_chart(fig_num2, width="stretch", key="custom_overview_numeric_box")
             else:
                 st.info("No category or aspect distribution data available.")
 
         # Top Items Leaderboard
         if not txn_data["top_products_df"].empty:
             st.markdown("##### 🏆 Top Ranked Products / Items")
-            st.dataframe(txn_data["top_products_df"], use_container_width=True, hide_index=True)
+            st.dataframe(txn_data["top_products_df"], width="stretch", hide_index=True)
 
     # ==========================================
     # TAB 2: NLP & ASPECT INTELLIGENCE
@@ -642,7 +642,7 @@ def render_custom_analyzer_page():
             with c_nlp1:
                 st.plotly_chart(
                     plot_sentiment_donut(reviews_data["sentiment_counts"]),
-                    use_container_width=True,
+                    width="stretch",
                     key="custom_nlp_sentiment_donut",
                 )
 
@@ -650,7 +650,7 @@ def render_custom_analyzer_page():
                 if not reviews_data["aspect_summary"].empty:
                     st.plotly_chart(
                         plot_aspect_radar(reviews_data["aspect_summary"]),
-                        use_container_width=True,
+                        width="stretch",
                         key="custom_nlp_aspect_radar",
                     )
                 else:
@@ -669,7 +669,7 @@ def render_custom_analyzer_page():
                             "negative_mentions": "Negative Mentions",
                         }
                     ),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                 )
 
@@ -710,19 +710,19 @@ def render_custom_analyzer_page():
             with rfm_v1:
                 st.plotly_chart(
                     plot_segment_distribution(rfm_metrics["segment_summary"]),
-                    use_container_width=True,
+                    width="stretch",
                     key="custom_rfm_segment_distribution",
                 )
             with rfm_v2:
                 st.plotly_chart(
                     plot_rfm_scatter(rfm_df),
-                    use_container_width=True,
+                    width="stretch",
                     key="custom_rfm_scatter",
                 )
 
             st.markdown("##### 🏅 VIP Customer Leaderboard")
             top_rfm = rfm_df.sort_values("monetary_total", ascending=False).head(10)
-            st.dataframe(top_rfm, use_container_width=True, hide_index=True)
+            st.dataframe(top_rfm, width="stretch", hide_index=True)
 
         else:
             st.info("💡 To view RFM Segmentation, map a **Customer ID** column along with a **Date** and **Revenue** column above.")
@@ -737,18 +737,18 @@ def render_custom_analyzer_page():
         if not table_profile["corr_matrix"].empty:
             st.plotly_chart(
                 plot_correlation_heatmap(table_profile["corr_matrix"]),
-                use_container_width=True,
+                width="stretch",
                 key="custom_corr_heatmap",
             )
 
         # Summary Statistics
         if not table_profile["summary_stats"].empty:
             st.markdown("##### 🔢 Numerical Feature Summary Statistics")
-            st.dataframe(table_profile["summary_stats"], use_container_width=True, hide_index=True)
+            st.dataframe(table_profile["summary_stats"], width="stretch", hide_index=True)
 
         # Enriched Data Table
         st.markdown("##### 📄 Enriched Dataset Preview (with ML Predictions & Aspect Tags)")
-        st.dataframe(enriched_df.head(100), use_container_width=True)
+        st.dataframe(enriched_df.head(100), width="stretch")
 
         # Report and Dataset Download Suite
         st.markdown("---")
@@ -774,7 +774,7 @@ def render_custom_analyzer_page():
                 mime="text/html",
                 type="primary",
                 help="Download styled briefing report. Open in any browser and press Ctrl+P to save as PDF.",
-                use_container_width=True,
+                width="stretch",
             )
             st.caption("🖨️ *Printable: Ctrl+P to save as PDF.*")
 
@@ -793,7 +793,7 @@ def render_custom_analyzer_page():
                 file_name=f"analytical_workbook_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 help="Multi-tab Excel workbook with Executive Summary, Enriched Data, Trends, Aspects, and RFM tabs.",
-                use_container_width=True,
+                width="stretch",
             )
             st.caption("📑 *5 tabs including Star-Schema summaries.*")
 
@@ -811,7 +811,7 @@ def render_custom_analyzer_page():
                 file_name=f"executive_summary_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
                 mime="text/markdown",
                 help="Structured Markdown briefing document with formatted KPI tables.",
-                use_container_width=True,
+                width="stretch",
             )
             st.caption("📝 *GitHub-flavored Markdown format.*")
 
@@ -825,7 +825,7 @@ def render_custom_analyzer_page():
                 file_name=f"enriched_dataset_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                 mime="text/csv",
                 help="Complete dataset enriched with ML predictions and extracted aspect tags.",
-                use_container_width=True,
+                width="stretch",
             )
             st.caption("💾 *Full dataset with predicted tags.*")
 
