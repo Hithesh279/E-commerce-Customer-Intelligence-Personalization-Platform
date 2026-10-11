@@ -10,18 +10,22 @@ import plotly.graph_objects as go
 
 def plot_revenue_trend(monthly_df: pd.DataFrame) -> go.Figure:
     """Plot monthly net revenue line/bar trend chart."""
+    x_col = "year_month" if "year_month" in monthly_df.columns else monthly_df.columns[0]
+    y_col = "total_revenue" if "total_revenue" in monthly_df.columns else (
+        "revenue" if "revenue" in monthly_df.columns else monthly_df.columns[1]
+    )
     fig = go.Figure()
     fig.add_trace(go.Bar(
-        x=monthly_df["year_month"],
-        y=monthly_df["total_revenue"],
+        x=monthly_df[x_col],
+        y=monthly_df[y_col],
         name="Monthly Revenue ($)",
         marker_color="#3b82f6",
         opacity=0.85,
     ))
     fig.update_layout(
-        title="Monthly Revenue Trend",
-        xaxis_title="Month",
-        yaxis_title="Net Revenue ($)",
+        title="Revenue Trend Over Time",
+        xaxis_title=x_col.replace("_", " ").title(),
+        yaxis_title="Revenue ($)",
         template="plotly_white",
         margin=dict(l=20, r=20, t=40, b=20),
         height=320,
@@ -30,15 +34,24 @@ def plot_revenue_trend(monthly_df: pd.DataFrame) -> go.Figure:
 
 
 def plot_category_sales(cat_df: pd.DataFrame) -> go.Figure:
-    """Plot category sales horizontal bar chart."""
+    """Plot category sales horizontal bar chart supporting dynamic category and revenue column names."""
+    df_copy = cat_df.copy()
+    cat_cols = [c for c in df_copy.columns if c not in ["revenue", "orders", "share_pct"]]
+    cat_col = cat_cols[0] if cat_cols else "category"
+    if cat_col not in df_copy.columns:
+        df_copy["category"] = df_copy.iloc[:, 0].astype(str)
+        cat_col = "category"
+
+    rev_col = "revenue" if "revenue" in df_copy.columns else df_copy.columns[1]
+
     fig = px.bar(
-        cat_df.sort_values("revenue", ascending=True),
-        x="revenue",
-        y="category",
+        df_copy.sort_values(rev_col, ascending=True),
+        x=rev_col,
+        y=cat_col,
         orientation="h",
-        title="Revenue by Category ($)",
-        labels={"revenue": "Revenue ($)", "category": "Category"},
-        color="revenue",
+        title=f"Revenue by {cat_col.replace('_', ' ').title()} ($)",
+        labels={rev_col: "Revenue ($)", cat_col: cat_col.replace('_', ' ').title()},
+        color=rev_col,
         color_continuous_scale="Blues",
     )
     fig.update_layout(

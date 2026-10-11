@@ -5,6 +5,7 @@ RFM behavioral profiling, and statistical table analysis for user-uploaded datas
 """
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
+import warnings
 import numpy as np
 import pandas as pd
 
@@ -82,9 +83,12 @@ def detect_schema(df: pd.DataFrame) -> Dict[str, Any]:
                 continue
             try:
                 sample_s = df[col].dropna().head(10)
-                if len(sample_s) > 0 and pd.to_datetime(sample_s, errors="coerce").notnull().all():
-                    detected["date_col"] = col
-                    break
+                if len(sample_s) > 0:
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        if pd.to_datetime(sample_s, errors="coerce").notnull().all():
+                            detected["date_col"] = col
+                            break
             except Exception:
                 continue
 

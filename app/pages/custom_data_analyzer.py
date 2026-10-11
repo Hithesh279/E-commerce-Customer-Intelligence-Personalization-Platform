@@ -4,6 +4,7 @@ User Data Upload & Auto-Generated Interactive Dashboard.
 Supports CSV/Excel uploads, 6 pre-built enterprise business templates,
 automated schema inference, NLP batch sentiment, RFM customer profiling, and enriched exports.
 """
+from datetime import datetime
 import io
 import sys
 from pathlib import Path
