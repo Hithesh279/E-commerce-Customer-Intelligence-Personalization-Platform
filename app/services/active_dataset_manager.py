@@ -76,6 +76,10 @@ def get_default_demo_bundles() -> Dict[str, Any]:
         "cust_profiles": cust_profiles,
         "seg_summary": seg_summary,
         "prod_perf": prod_perf,
+        "reviews_data": None,
+        "aspects_df": pd.DataFrame(),
+        "has_transactions": True,
+        "has_reviews": True,
     }
 
 
@@ -95,7 +99,11 @@ def build_custom_analytics_bundles(
     Product Intelligence, NLP Insights, Recommendations) render smoothly and accurately.
     """
     total_rows = len(df)
-    mappings = schema_info.get("detected_mappings", {})
+    mappings = schema_info.get("detected_mappings") or schema_info.get("mappings") or {}
+
+    modalities = schema_info.get("modalities", {})
+    has_txns = modalities.get("has_transactions", False) or txn_data.get("total_revenue", 0.0) > 0
+    has_revs = modalities.get("has_reviews", False) or (reviews_data is not None)
 
     # -------------------------------------------------------------
     # 1. Executive KPIs Scorecard
@@ -103,22 +111,20 @@ def build_custom_analytics_bundles(
     total_rev = txn_data.get("total_revenue", 0.0)
     total_orders = txn_data.get("total_orders", 0)
 
-    # Fallback to any numeric column sum if transaction total is 0
-    if total_rev <= 0.0:
+    # Fallback to any numeric money column ONLY if transactions or monetary metrics are detected
+    if total_rev <= 0.0 and has_txns:
         numeric_cols = df.select_dtypes(include=[np.number]).columns
         candidate_money = [c for c in numeric_cols if any(k in str(c).lower() for k in ["amount", "rev", "price", "spend", "cost", "mrr", "fee", "val"])]
         if candidate_money:
             total_rev = round(float(df[candidate_money[0]].sum()), 2)
         elif len(numeric_cols) > 0:
             total_rev = round(float(df[numeric_cols[0]].sum()), 2)
-        else:
-            total_rev = float(total_rows * 48.5)
 
     if total_orders <= 0:
         total_orders = max(total_rows, 1)
 
-    aov = txn_data.get("aov", round(total_rev / max(total_orders, 1), 2))
-    return_rate = txn_data.get("return_rate", 4.8)
+    aov = txn_data.get("aov", round(total_rev / max(total_orders, 1), 2) if total_rev > 0 else 0.0)
+    return_rate = txn_data.get("return_rate", 0.0 if not has_txns else 4.8)
 
     avg_rating = 4.35
     pos_pct = 78.5
@@ -149,7 +155,7 @@ def build_custom_analytics_bundles(
         total_cust = int(df[mappings["customer_col"]].nunique())
 
     exec_kpis = {
-        "total_gross_revenue": round(total_rev * 1.05, 2),
+        "total_gross_revenue": round(total_rev * 1.05, 2) if total_rev > 0 else 0.0,
         "total_net_revenue": round(total_rev, 2),
         "total_orders": int(total_orders),
         "total_customers": int(total_cust),
@@ -160,6 +166,9 @@ def build_custom_analytics_bundles(
         "positive_sentiment_pct": float(pos_pct),
         "neutral_sentiment_pct": float(neu_pct),
         "negative_sentiment_pct": float(neg_pct),
+        "net_sentiment_score": round(pos_pct - neg_pct, 1),
+        "has_transactions": has_txns,
+        "has_reviews": has_revs,
     }
 
     # -------------------------------------------------------------
@@ -239,6 +248,10 @@ def build_custom_analytics_bundles(
         cust_profiles = rfm_df.copy()
         if "customer_segment" not in cust_profiles.columns:
             cust_profiles["customer_segment"] = cust_profiles.get("rfm_segment", "Loyal Customers")
+        if "rfm_segment" not in cust_profiles.columns:
+            cust_profiles["rfm_segment"] = cust_profiles["customer_segment"]
+        if "rfm_score" not in cust_profiles.columns:
+            cust_profiles["rfm_score"] = "444"
         if "membership_type" not in cust_profiles.columns:
             cust_profiles["membership_type"] = cust_profiles["customer_segment"].apply(
                 lambda s: "VIP Platinum" if "Champion" in str(s) else ("Gold" if "Loyal" in str(s) else "Standard")
@@ -392,6 +405,12 @@ def build_custom_analytics_bundles(
             })
         prod_perf = pd.DataFrame(p_rows)
 
+    if "product_description" not in prod_perf.columns:
+        prod_perf["product_description"] = [
+            f"High-quality {r.get('product_name', 'item')} engineered for reliable performance."
+            for _, r in prod_perf.iterrows()
+        ]
+
     # -------------------------------------------------------------
     # 6. Aspects DataFrame (for NLP Insights radar & table)
     # -------------------------------------------------------------
@@ -438,6 +457,10 @@ def build_custom_analytics_bundles(
         "cust_profiles": cust_profiles,
         "seg_summary": seg_summary,
         "prod_perf": prod_perf,
+        "reviews_data": reviews_data,
+        "aspects_df": aspects_df,
+        "has_transactions": has_txns,
+        "has_reviews": has_revs,
     }
 
     return bundles, aspects_df
@@ -461,14 +484,20 @@ def set_active_custom_dataset(
     if schema_info is None:
         schema_info = detect_schema(df)
 
-    mappings = schema_info.get("detected_mappings", {})
+    mappings = schema_info.get("detected_mappings") or schema_info.get("mappings") or {}
 
     if enriched_df is None:
         enriched_df = df.copy()
         text_col = mappings.get("text_col")
         rating_col = mappings.get("rating_col")
-        if text_col and text_col in df.columns:
-            enriched_df, reviews_data = analyze_custom_reviews(df, text_col=text_col, rating_col=rating_col)
+        sentiment_col = mappings.get("sentiment_col")
+        if (text_col and text_col in df.columns) or (sentiment_col and sentiment_col in df.columns) or (rating_col and rating_col in df.columns):
+            enriched_df, reviews_data = analyze_custom_reviews(
+                df,
+                text_col=text_col,
+                rating_col=rating_col,
+                sentiment_col=sentiment_col,
+            )
 
     if txn_data is None:
         txn_data = analyze_custom_transactions(
@@ -593,8 +622,16 @@ def generate_active_dashboard_reports() -> Dict[str, Any]:
     """
     Generate complete export suite for the active platform dataset:
     HTML/PDF executive report, multi-sheet Excel workbook, Markdown briefing, and CSV.
+    Caches results in session_state to ensure instant UI rendering.
     """
     state = get_active_dataset_state()
+    cache_key = f"{state['dataset_name']}_{state['timestamp']}_{state['row_count']}" if state else "default_demo"
+
+    if _is_streamlit_running():
+        cached = st.session_state.get("_cached_active_reports")
+        cached_key = st.session_state.get("_cached_active_reports_key")
+        if cached is not None and cached_key == cache_key:
+            return cached
 
     if state is not None:
         df = state["enriched_df"]
@@ -657,7 +694,7 @@ def generate_active_dashboard_reports() -> Dict[str, Any]:
     ts = datetime.now().strftime("%Y%m%d_%H%M")
     clean_prefix = "".join(c if c.isalnum() else "_" for c in label.lower()).strip("_")
 
-    return {
+    reports_suite = {
         "html_report": html_report,
         "excel_bytes": excel_bytes,
         "md_report": md_report,
@@ -668,8 +705,14 @@ def generate_active_dashboard_reports() -> Dict[str, Any]:
         "csv_filename": f"dataset_{clean_prefix}_{ts}.csv",
     }
 
+    if _is_streamlit_running():
+        st.session_state["_cached_active_reports"] = reports_suite
+        st.session_state["_cached_active_reports_key"] = cache_key
 
-def render_global_active_dataset_banner():
+    return reports_suite
+
+
+def render_global_active_dataset_banner(page_id: str = "banner"):
     """
     Render a clean, responsive active dataset status bar and 1-click download suite
     at the top of dashboard pages.
@@ -699,62 +742,79 @@ def render_global_active_dataset_banner():
             """,
             unsafe_allow_html=True,
         )
+    else:
+        st.markdown(
+            """
+            <div style="background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); border: 1px solid #cbd5e1; border-left: 5px solid #3b82f6; border-radius: 8px; padding: 10px 16px; margin-bottom: 16px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;">
+                    <div>
+                        <strong style="color: #1e293b; font-size: 0.92rem;">🏬 Active Platform Dataset: Default E-Commerce Demo Store</strong>
+                        <div style="color: #64748b; font-size: 0.78rem; margin-top: 2px;">
+                            <span>📊 <strong>1,000</strong> transactions • <strong>200</strong> customers • <strong>50</strong> products • <strong>400</strong> reviews</span> • 
+                            <span>⚡ All analytical models synchronized</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-        with st.expander("📥 1-Click Download Entire Dashboard Report & Enriched Data", expanded=False):
-            st.caption("Export the complete executive intelligence findings for the currently active dataset in 4 enterprise formats:")
-            d_col1, d_col2, d_col3, d_col4 = st.columns(4)
+    with st.expander("📥 1-Click Download Entire Dashboard Report & Data", expanded=False):
+        st.caption("Export the complete executive intelligence findings for the currently active dataset in 4 enterprise formats:")
+        d_col1, d_col2, d_col3, d_col4 = st.columns(4)
 
-            # Lazy generation on expand
-            reports = generate_active_dashboard_reports()
+        reports = generate_active_dashboard_reports()
 
-            with d_col1:
-                st.download_button(
-                    label="📄 Executive Report (HTML/PDF)",
-                    data=reports["html_report"].encode("utf-8"),
-                    file_name=reports["html_filename"],
-                    mime="text/html",
-                    type="primary",
-                    key="global_banner_dl_html",
-                    use_container_width=True,
-                )
-                st.caption("🖨️ *Printable: Ctrl+P to save as PDF.*")
+        with d_col1:
+            st.download_button(
+                label="📄 Executive Report (HTML/PDF)",
+                data=reports["html_report"].encode("utf-8"),
+                file_name=reports["html_filename"],
+                mime="text/html",
+                type="primary",
+                key=f"{page_id}_dl_html",
+                use_container_width=True,
+            )
+            st.caption("🖨️ *Printable: Ctrl+P to save as PDF.*")
 
-            with d_col2:
-                st.download_button(
-                    label="📊 Multi-Tab Excel (.xlsx)",
-                    data=reports["excel_bytes"],
-                    file_name=reports["excel_filename"],
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="global_banner_dl_excel",
-                    use_container_width=True,
-                )
-                st.caption("📈 *5 sheets: Summary, Trends, RFM, etc.*")
+        with d_col2:
+            st.download_button(
+                label="📊 Multi-Tab Excel (.xlsx)",
+                data=reports["excel_bytes"],
+                file_name=reports["excel_filename"],
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"{page_id}_dl_excel",
+                use_container_width=True,
+            )
+            st.caption("📈 *5 sheets: Summary, Trends, RFM, etc.*")
 
-            with d_col3:
-                st.download_button(
-                    label="📝 Executive Briefing (.md)",
-                    data=reports["md_report"].encode("utf-8"),
-                    file_name=reports["md_filename"],
-                    mime="text/markdown",
-                    key="global_banner_dl_md",
-                    use_container_width=True,
-                )
-                st.caption("📋 *Formatted KPI markdown tables.*")
+        with d_col3:
+            st.download_button(
+                label="📝 Executive Briefing (.md)",
+                data=reports["md_report"].encode("utf-8"),
+                file_name=reports["md_filename"],
+                mime="text/markdown",
+                key=f"{page_id}_dl_md",
+                use_container_width=True,
+            )
+            st.caption("📋 *Formatted KPI markdown tables.*")
 
-            with d_col4:
-                st.download_button(
-                    label="📁 Enriched Dataset (.csv)",
-                    data=reports["csv_bytes"],
-                    file_name=reports["csv_filename"],
-                    mime="text/csv",
-                    key="global_banner_dl_csv",
-                    use_container_width=True,
-                )
-                st.caption("💾 *Complete augmented table.*")
+        with d_col4:
+            st.download_button(
+                label="📁 Dataset (.csv)",
+                data=reports["csv_bytes"],
+                file_name=reports["csv_filename"],
+                mime="text/csv",
+                key=f"{page_id}_dl_csv",
+                use_container_width=True,
+            )
+            st.caption("💾 *Complete analytical table.*")
 
+        if state is not None:
             c_btn1, c_btn2 = st.columns([1, 1])
             with c_btn1:
-                if st.button("↺ Reset to Default Demo Store Data", key="global_banner_btn_reset"):
+                if st.button("↺ Reset to Default Demo Store Data", key=f"{page_id}_btn_reset"):
                     reset_to_default_demo_dataset()
                     st.rerun()
             with c_btn2:

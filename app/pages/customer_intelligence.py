@@ -27,7 +27,7 @@ def render_customer_intelligence_page():
     st.caption("Recency, Frequency, and Monetary (RFM) analytics and 360-degree customer profiling.")
 
     from app.services.active_dataset_manager import render_global_active_dataset_banner
-    render_global_active_dataset_banner()
+    render_global_active_dataset_banner(page_id="cust_intel")
 
     bundles = get_cached_analytics_bundles()
     cust_profiles = bundles["cust_profiles"]
@@ -66,7 +66,7 @@ def render_customer_intelligence_page():
         template="plotly_white",
         height=380,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key="cust_intel_rfm_scatter")
 
     st.markdown("---")
 

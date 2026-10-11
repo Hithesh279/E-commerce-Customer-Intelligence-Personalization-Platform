@@ -362,20 +362,22 @@ def render_custom_analyzer_page():
 
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            sel_text = st.selectbox("Text / Review Column:", cols_options, index=get_default_idx(mappings["text_col"]))
-            sel_rating = st.selectbox("Rating / Score Column:", cols_options, index=get_default_idx(mappings["rating_col"]))
+            sel_text = st.selectbox("Text / Review Column:", cols_options, index=get_default_idx(mappings.get("text_col")))
+            sel_sentiment = st.selectbox("Sentiment / Polarity Column:", cols_options, index=get_default_idx(mappings.get("sentiment_col")))
+            sel_rating = st.selectbox("Rating / Score Column:", cols_options, index=get_default_idx(mappings.get("rating_col")))
         with c2:
-            sel_date = st.selectbox("Date / Timestamp Column:", cols_options, index=get_default_idx(mappings["date_col"]))
-            sel_revenue = st.selectbox("Revenue / Amount Column:", cols_options, index=get_default_idx(mappings["revenue_col"]))
+            sel_date = st.selectbox("Date / Timestamp Column:", cols_options, index=get_default_idx(mappings.get("date_col")))
+            sel_revenue = st.selectbox("Revenue / Amount Column:", cols_options, index=get_default_idx(mappings.get("revenue_col")))
         with c3:
-            sel_cust = st.selectbox("Customer ID Column:", cols_options, index=get_default_idx(mappings["customer_col"]))
-            sel_prod = st.selectbox("Product / SKU Column:", cols_options, index=get_default_idx(mappings["product_col"]))
+            sel_cust = st.selectbox("Customer ID Column:", cols_options, index=get_default_idx(mappings.get("customer_col")))
+            sel_prod = st.selectbox("Product / SKU Column:", cols_options, index=get_default_idx(mappings.get("product_col")))
         with c4:
-            sel_cat = st.selectbox("Category / Dept Column:", cols_options, index=get_default_idx(mappings["category_col"]))
-            sel_status = st.selectbox("Status / Return Column:", cols_options, index=get_default_idx(mappings["status_col"]))
+            sel_cat = st.selectbox("Category / Dept Column:", cols_options, index=get_default_idx(mappings.get("category_col")))
+            sel_status = st.selectbox("Status / Return Column:", cols_options, index=get_default_idx(mappings.get("status_col")))
 
         # Apply overrides
         text_col = None if sel_text == "None" else sel_text
+        sentiment_col = None if sel_sentiment == "None" else sel_sentiment
         rating_col = None if sel_rating == "None" else sel_rating
         date_col = None if sel_date == "None" else sel_date
         revenue_col = None if sel_revenue == "None" else sel_revenue
@@ -389,8 +391,13 @@ def render_custom_analyzer_page():
         # Reviews analysis
         reviews_data = None
         enriched_df = active_df.copy()
-        if text_col and text_col in active_df.columns:
-            enriched_df, reviews_data = analyze_custom_reviews(active_df, text_col=text_col, rating_col=rating_col)
+        if (text_col and text_col in active_df.columns) or (sentiment_col and sentiment_col in active_df.columns) or (rating_col and rating_col in active_df.columns):
+            enriched_df, reviews_data = analyze_custom_reviews(
+                active_df,
+                text_col=text_col,
+                rating_col=rating_col,
+                sentiment_col=sentiment_col,
+            )
 
         # Transactions analysis
         txn_data = analyze_custom_transactions(

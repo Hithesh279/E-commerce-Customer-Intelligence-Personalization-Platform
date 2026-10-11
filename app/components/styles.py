@@ -161,28 +161,33 @@ def render_sidebar_status():
         f"{cfg['icon']} {cfg['name']}" for cfg in TEMPLATES_CONFIG.values()
     ]
 
-    sel_template = st.sidebar.selectbox(
+    def _on_sidebar_template_change():
+        chosen = st.session_state.get("_sb_template_pick")
+        if not chosen or chosen == "(Current Active Dataset)":
+            return
+        if "Default Demo Store Data" in chosen:
+            reset_to_default_demo_dataset()
+        else:
+            for tid, cfg in TEMPLATES_CONFIG.items():
+                if cfg["name"] in chosen:
+                    load_template_as_active_dataset(tid)
+                    break
+        # Reset selection key so it never retains the trigger item
+        st.session_state["_sb_template_pick"] = "(Current Active Dataset)"
+
+    st.sidebar.selectbox(
         "Choose a template or data source:",
         options=template_options,
         index=0,
-        key="sidebar_dataset_switcher",
+        key="_sb_template_pick",
+        on_change=_on_sidebar_template_change,
         label_visibility="collapsed",
     )
-
-    if sel_template != "(Current Active Dataset)":
-        if sel_template == "📦 Default Demo Store Data":
-            reset_to_default_demo_dataset()
-            st.rerun()
-        else:
-            for tid, cfg in TEMPLATES_CONFIG.items():
-                if cfg["name"] in sel_template:
-                    with st.spinner(f"Activating {cfg['name']}..."):
-                        load_template_as_active_dataset(tid)
-                    st.rerun()
 
     if is_custom:
         if st.sidebar.button("↺ Reset to Demo Store Data", key="sidebar_btn_reset_default", use_container_width=True):
             reset_to_default_demo_dataset()
+            st.session_state["_sb_template_pick"] = "(Current Active Dataset)"
             st.rerun()
 
     # 1-Click Download Entire Dashboard

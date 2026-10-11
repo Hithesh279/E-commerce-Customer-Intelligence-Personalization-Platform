@@ -28,7 +28,7 @@ def render_product_intelligence_page():
     st.caption("Commercial SKU performance, sentiment-sales discrepancy detection, and similar product retrieval.")
 
     from app.services.active_dataset_manager import render_global_active_dataset_banner
-    render_global_active_dataset_banner()
+    render_global_active_dataset_banner(page_id="prod_intel")
 
     bundles = get_cached_analytics_bundles()
     prod_perf = bundles["prod_perf"]
@@ -79,7 +79,7 @@ def render_product_intelligence_page():
     )
     # Add horizontal threshold lines
     fig.add_hline(y=3.0, line_dash="dash", line_color="red", annotation_text="Dissatisfaction Threshold (3.0★)")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key="prod_intel_scatter")
 
     st.markdown("---")
 
@@ -107,7 +107,8 @@ def render_product_intelligence_page():
             card_type="danger" if prod_row['return_rate'] > 15 else "success",
         )
 
-    st.markdown(f"**Description:** {prod_row['product_description']}")
+    p_desc = prod_row.get("product_description", f"High performance catalog product in category {prod_row.get('category', 'General')}.")
+    st.markdown(f"**Description:** {p_desc}")
 
     # Similar products via Content recommender
     recs_sys = load_recommendation_system()

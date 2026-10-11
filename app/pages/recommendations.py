@@ -26,7 +26,7 @@ def render_recommendations_page():
     st.caption("Multi-strategy recommendation engine delivering explainable recommendations across all customer lifecycle stages.")
 
     from app.services.active_dataset_manager import render_global_active_dataset_banner
-    render_global_active_dataset_banner()
+    render_global_active_dataset_banner(page_id="recs")
 
     bundles = get_cached_analytics_bundles()
     cust_profiles = bundles["cust_profiles"]

@@ -124,3 +124,33 @@ def test_reset_to_default_demo_dataset():
     assert "exec_kpis" in bundles
     # Verify default dataset metrics
     assert bundles["exec_kpis"]["total_orders"] == 1000
+
+
+def test_sentiment_only_dataset_modality():
+    """Verify sentiment-only review datasets correctly set modality and don't invent fake revenue."""
+    voc_df = pd.DataFrame({
+        "review_id": [f"REV-{i}" for i in range(100)],
+        "review_text": ["This is great and amazing build quality!" if i % 2 == 0 else "Horrible battery life and terrible service." for i in range(100)],
+        "sentiment": ["Positive" if i % 2 == 0 else "Negative" for i in range(100)],
+    })
+
+    state = set_active_custom_dataset(voc_df, source_label="Customer Sentiment VoC")
+    assert state["is_custom_active"] is True
+    bundles = state["bundles"]
+    kpis = bundles["exec_kpis"]
+
+    # Must reflect VoC modality without invented transaction revenue
+    assert bundles["has_transactions"] is False
+    assert bundles["has_reviews"] is True
+    assert kpis["total_net_revenue"] == 0.0
+    assert kpis["total_orders"] == 100
+    assert "net_sentiment_score" in kpis
+    assert kpis["positive_sentiment_pct"] == 50.0
+    assert kpis["negative_sentiment_pct"] == 50.0
+    assert kpis["net_sentiment_score"] == 0.0
+
+    # Ensure required columns for other pages are present
+    assert "rfm_segment" in bundles["cust_profiles"].columns
+    assert "rfm_score" in bundles["cust_profiles"].columns
+    assert "product_description" in bundles["prod_perf"].columns
+    assert not state["aspects_df"].empty
