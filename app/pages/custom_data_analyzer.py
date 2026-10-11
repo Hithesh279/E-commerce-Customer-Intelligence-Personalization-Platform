@@ -73,11 +73,25 @@ def render_custom_analyzer_page():
 
     templates = get_available_templates()
 
+    from src.analytics.multi_file_loader import (
+        auto_join_relational_tables,
+        check_schema_compatibility,
+        combine_homogeneous_tables,
+        load_zip_archive,
+        read_tabular_file,
+        scan_local_directory,
+    )
+
     # Ingestion Source Selector
     st.markdown("##### 📥 Step 1: Select Data Ingestion Source")
     ingest_mode = st.radio(
         "Choose how you want to provide data:",
-        ["📋 Use Enterprise Business Template (12 Ready-to-Use)", "📂 Upload Custom File (CSV or Excel)"],
+        [
+            "📋 Use Enterprise Business Template (12 Ready-to-Use)",
+            "📄 Upload Single File (CSV or Excel)",
+            "🗂️ Upload Multiple Files / Folder ZIP",
+            "📁 Scan Local Directory / Folder on Disk",
+        ],
         horizontal=True,
     )
 
@@ -142,7 +156,7 @@ def render_custom_analyzer_page():
             active_df = load_sample_template(selected_key, n_records=150)
             data_source_label = f"Template: {t_meta['name']}"
 
-    else:
+    elif ingest_mode.startswith("📄 Upload Single File"):
         uploaded_file = st.file_uploader(
             "Upload your dataset (CSV or Excel file):",
             type=["csv", "xlsx", "xls"],
@@ -150,13 +164,158 @@ def render_custom_analyzer_page():
         )
         if uploaded_file is not None:
             try:
-                if uploaded_file.name.endswith(".csv"):
-                    active_df = pd.read_csv(uploaded_file)
-                else:
-                    active_df = pd.read_excel(uploaded_file)
+                active_df = read_tabular_file(uploaded_file, uploaded_file.name)
                 data_source_label = f"Uploaded File: {uploaded_file.name}"
             except Exception as e:
                 st.error(f"Error loading uploaded file: {e}")
+                return
+
+    elif ingest_mode.startswith("🗂️ Upload Multiple Files"):
+        st.markdown(
+            """
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin-bottom: 14px;">
+                <strong style="color: #1e293b; font-size: 0.95rem;">Upload Multiple Datasets or Zipped Folder:</strong>
+                <p style="font-size: 0.85rem; color: #64748b; margin: 4px 0 0 0;">
+                    Select multiple CSV/Excel files at once, or upload a <strong>.zip folder</strong> containing your datasets. 
+                    Compatible files can be automatically unified into a single master dataset, or inspected individually.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        uploaded_files = st.file_uploader(
+            "Choose multiple CSV/Excel files or a .ZIP archive:",
+            type=["csv", "xlsx", "xls", "zip"],
+            accept_multiple_files=True,
+            help="Select multiple files using Ctrl/Shift+Click, or drop a zipped folder.",
+        )
+
+        loaded_tables: Dict[str, pd.DataFrame] = {}
+        if uploaded_files:
+            for uf in uploaded_files:
+                if uf.name.lower().endswith(".zip"):
+                    try:
+                        extracted = load_zip_archive(uf.getvalue())
+                        loaded_tables.update(extracted)
+                    except Exception as e:
+                        st.error(f"Error reading ZIP archive {uf.name}: {e}")
+                else:
+                    try:
+                        df_single = read_tabular_file(uf, uf.name)
+                        loaded_tables[uf.name] = df_single
+                    except Exception as e:
+                        st.error(f"Error reading file {uf.name}: {e}")
+
+        if loaded_tables:
+            st.success(f"Successfully loaded {len(loaded_tables)} dataset(s): {', '.join(loaded_tables.keys())}")
+            # Display multi-file inventory table
+            multi_inv = pd.DataFrame([
+                {"File Name": name, "Rows": len(df), "Columns": len(df.columns), "Size (KB)": round(df.memory_usage(deep=True).sum() / 1024, 1)}
+                for name, df in loaded_tables.items()
+            ])
+            st.dataframe(multi_inv, use_container_width=True, hide_index=True)
+
+            is_compat, shared = check_schema_compatibility(loaded_tables)
+            if len(loaded_tables) > 1:
+                col_act1, col_act2 = st.columns(2)
+                with col_act1:
+                    merge_opt = st.radio(
+                        "How would you like to analyze these files?",
+                        [
+                            "🔗 Combine all files into unified master dataset" if is_compat else "🔗 Auto-Join relational tables on common ID keys",
+                            "🔍 Select a specific file to analyze individually",
+                        ],
+                    )
+
+                if merge_opt.startswith("🔗 Combine"):
+                    active_df = combine_homogeneous_tables(loaded_tables)
+                    data_source_label = f"Consolidated {len(loaded_tables)} Files ({len(active_df):,} total rows)"
+                elif merge_opt.startswith("🔗 Auto-Join"):
+                    active_df, msg = auto_join_relational_tables(loaded_tables)
+                    st.info(msg)
+                    data_source_label = f"Relational Joined Dataset ({len(active_df):,} rows)"
+                else:
+                    with col_act2:
+                        chosen_table = st.selectbox("Select file to analyze in dashboard:", list(loaded_tables.keys()))
+                    active_df = loaded_tables[chosen_table]
+                    data_source_label = f"File: {chosen_table}"
+            else:
+                only_name = list(loaded_tables.keys())[0]
+                active_df = loaded_tables[only_name]
+                data_source_label = f"File: {only_name}"
+
+    elif ingest_mode.startswith("📁 Scan Local Directory"):
+        st.markdown(
+            """
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin-bottom: 14px;">
+                <strong style="color: #1e293b; font-size: 0.95rem;">Scan & Ingest from Local Machine Folder:</strong>
+                <p style="font-size: 0.85rem; color: #64748b; margin: 4px 0 0 0;">
+                    Specify any folder directory path on your system. The engine will scan all sub-files, import all CSV/Excel tables, and let you analyze them together.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        c_p1, c_p2 = st.columns([3, 1])
+        with c_p1:
+            local_path_input = st.text_input(
+                "Local Directory Path:",
+                value="data/raw",
+                help="Enter an absolute or relative folder path containing CSV/Excel datasets.",
+            )
+        with c_p2:
+            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+            scan_btn = st.button("🔍 Scan & Ingest Folder", type="primary")
+
+        if scan_btn or "scanned_local_path" in st.session_state:
+            if scan_btn:
+                st.session_state["scanned_local_path"] = local_path_input
+
+            target_path = st.session_state.get("scanned_local_path", local_path_input)
+            try:
+                scanned_tables = scan_local_directory(target_path)
+                if not scanned_tables:
+                    st.warning(f"No CSV or Excel files found in directory: `{target_path}`")
+                else:
+                    st.success(f"Found {len(scanned_tables)} datasets in `{target_path}`: {', '.join(scanned_tables.keys())}")
+                    multi_inv = pd.DataFrame([
+                        {"File Name": name, "Rows": len(df), "Columns": len(df.columns), "Size (KB)": round(df.memory_usage(deep=True).sum() / 1024, 1)}
+                        for name, df in scanned_tables.items()
+                    ])
+                    st.dataframe(multi_inv, use_container_width=True, hide_index=True)
+
+                    is_compat, shared = check_schema_compatibility(scanned_tables)
+                    if len(scanned_tables) > 1:
+                        c_opt1, c_opt2 = st.columns(2)
+                        with c_opt1:
+                            folder_merge_opt = st.radio(
+                                "Multi-File Strategy:",
+                                [
+                                    "🔗 Combine all files into unified master dataset" if is_compat else "🔗 Auto-Join relational tables on common ID keys",
+                                    "🔍 Select a specific file to analyze individually",
+                                ],
+                                key="folder_merge_strategy",
+                            )
+
+                        if folder_merge_opt.startswith("🔗 Combine"):
+                            active_df = combine_homogeneous_tables(scanned_tables)
+                            data_source_label = f"Folder Ingestion: {len(scanned_tables)} Files Consolidated ({len(active_df):,} rows)"
+                        elif folder_merge_opt.startswith("🔗 Auto-Join"):
+                            active_df, msg = auto_join_relational_tables(scanned_tables)
+                            st.info(msg)
+                            data_source_label = f"Folder Relational Joined ({len(active_df):,} rows)"
+                        else:
+                            with c_opt2:
+                                chosen_file = st.selectbox("Select file to analyze:", list(scanned_tables.keys()), key="folder_sel_file")
+                            active_df = scanned_tables[chosen_file]
+                            data_source_label = f"Folder File: {chosen_file}"
+                    else:
+                        single_k = list(scanned_tables.keys())[0]
+                        active_df = scanned_tables[single_k]
+                        data_source_label = f"Folder File: {single_k}"
+
+            except Exception as e:
+                st.error(f"Error scanning folder: {e}")
                 return
 
     if active_df is None or active_df.empty:

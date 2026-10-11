@@ -183,3 +183,58 @@ def test_profile_generic_table():
     assert not profile["summary_stats"].empty
     assert not profile["corr_matrix"].empty
     assert not profile["missing_overview"].empty
+
+
+def test_multi_file_zip_and_combine():
+    """Verify loading from ZIP archive and combining homogeneous tables."""
+    import io
+    import zipfile
+    from src.analytics.multi_file_loader import (
+        check_schema_compatibility,
+        combine_homogeneous_tables,
+        load_zip_archive,
+    )
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as zf:
+        zf.writestr("sales_jan.csv", "order_id,amount,status\n101,50.0,Completed\n102,75.0,Completed\n")
+        zf.writestr("sales_feb.csv", "order_id,amount,status\n103,120.0,Completed\n104,40.0,Returned\n")
+
+    zip_bytes = zip_buffer.getvalue()
+    tables = load_zip_archive(zip_bytes)
+    assert len(tables) == 2
+    assert "sales_jan.csv" in tables
+    assert "sales_feb.csv" in tables
+
+    is_compat, shared = check_schema_compatibility(tables)
+    assert is_compat is True
+    assert "order_id" in shared
+
+    combined = combine_homogeneous_tables(tables)
+    assert len(combined) == 4
+    assert "_source_file" in combined.columns
+    assert set(combined["_source_file"].unique()) == {"sales_jan.csv", "sales_feb.csv"}
+
+
+def test_multi_file_relational_auto_join():
+    """Verify auto-joining relational tables on common ID keys."""
+    from src.analytics.multi_file_loader import auto_join_relational_tables
+
+    orders_df = pd.DataFrame({
+        "order_id": [1, 2, 3],
+        "customer_id": ["C1", "C2", "C1"],
+        "amount": [100.0, 150.0, 75.0],
+    })
+    customers_df = pd.DataFrame({
+        "customer_id": ["C1", "C2"],
+        "customer_name": ["Alice", "Bob"],
+        "tier": ["Gold", "Silver"],
+    })
+    tables = {"orders.csv": orders_df, "customers.csv": customers_df}
+
+    joined_df, summary = auto_join_relational_tables(tables)
+    assert len(joined_df) == 3
+    assert "customer_name" in joined_df.columns
+    assert "tier" in joined_df.columns
+    assert "orders.csv" in summary
+
