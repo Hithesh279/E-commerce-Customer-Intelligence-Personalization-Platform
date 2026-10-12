@@ -16,6 +16,7 @@ class RecommendedProduct(BaseModel):
 
 
 class RecommendationResponse(BaseModel):
+    model_config = {"protected_namespaces": ()}
     customer_id: str
     model_strategy: str
     count: int
