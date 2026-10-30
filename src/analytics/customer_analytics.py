@@ -83,20 +83,26 @@ def generate_customer_profile_metrics(
 
 
 def get_segment_summary(customer_profiles: pd.DataFrame) -> pd.DataFrame:
-    """Summarize financial and engagement KPIs across customer segments."""
-    summary = customer_profiles.groupby("customer_segment").agg(
-        customer_count=("customer_id", "count"),
-        total_revenue=("net_spend", "sum"),
-        avg_revenue_per_customer=("net_spend", "mean"),
-        avg_orders=("total_orders", "mean"),
-        avg_aov=("average_order_value", "mean"),
-        avg_return_rate=("return_rate", "mean"),
-    ).reset_index()
+    """Summarize revenue and engagement KPIs across customer segments, using only available columns."""
+    if customer_profiles.empty or "customer_segment" not in customer_profiles.columns:
+        return pd.DataFrame(columns=["customer_segment", "customer_count", "total_revenue",
+                                     "avg_revenue_per_customer", "avg_orders", "avg_aov", "avg_return_rate"])
+    agg = {"customer_count": ("customer_id", "count")}
+    if "net_spend" in customer_profiles.columns:
+        agg["total_revenue"] = ("net_spend", "sum")
+        agg["avg_revenue_per_customer"] = ("net_spend", "mean")
+    if "total_orders" in customer_profiles.columns:
+        agg["avg_orders"] = ("total_orders", "mean")
+    if "average_order_value" in customer_profiles.columns:
+        agg["avg_aov"] = ("average_order_value", "mean")
+    if "return_rate" in customer_profiles.columns:
+        agg["avg_return_rate"] = ("return_rate", "mean")
+    summary = customer_profiles.groupby("customer_segment").agg(**agg).reset_index()
+    for col, decimals in [("total_revenue", 2), ("avg_revenue_per_customer", 2), ("avg_orders", 1),
+                          ("avg_aov", 2), ("avg_return_rate", 1)]:
+        if col in summary.columns:
+            summary[col] = summary[col].round(decimals)
+    sort_col = "total_revenue" if "total_revenue" in summary.columns else "customer_count"
+    return summary.sort_values(sort_col, ascending=False).reset_index(drop=True)
 
-    summary["total_revenue"] = summary["total_revenue"].round(2)
-    summary["avg_revenue_per_customer"] = summary["avg_revenue_per_customer"].round(2)
-    summary["avg_orders"] = summary["avg_orders"].round(1)
-    summary["avg_aov"] = summary["avg_aov"].round(2)
-    summary["avg_return_rate"] = summary["avg_return_rate"].round(1)
 
-    return summary.sort_values("total_revenue", ascending=False).reset_index(drop=True)

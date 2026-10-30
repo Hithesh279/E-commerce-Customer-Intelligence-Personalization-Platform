@@ -50,7 +50,7 @@ class SentimentPredictor:
         cleaned = clean_text(text)
         features = self.vectorizer.transform([cleaned])
         probas = self.model.predict_proba(features)[0]
-        classes = self.model.classes_
+        classes = list(self.model.classes_)
 
         # Aspect-aware calibration
         from src.nlp.aspect_extraction import extract_aspect_sentiment_from_text
@@ -73,11 +73,11 @@ class SentimentPredictor:
             total_p = sum(prob_map.values())
             probas = np.array([prob_map[c] / total_p for c in classes])
 
-        pred_idx = np.argmax(probas)
-        predicted_class = classes[pred_idx]
+        pred_idx = int(np.argmax(probas))
+        predicted_class = str(classes[pred_idx])
         confidence = float(probas[pred_idx])
 
-        prob_dict = {cls_name: round(float(p), 4) for cls_name, p in zip(classes, probas)}
+        prob_dict = {str(cls_name): round(float(p), 4) for cls_name, p in zip(classes, probas)}
 
         return {
             "sentiment": predicted_class,
@@ -88,16 +88,18 @@ class SentimentPredictor:
 
     def predict_batch(self, texts: List[str]) -> List[Dict[str, Union[str, float]]]:
         """Predict sentiment for a batch of texts efficiently."""
+        if not texts:
+            return []
         cleaned_list = [clean_text(t) for t in texts]
         features = self.vectorizer.transform(cleaned_list)
         probas = self.model.predict_proba(features)
-        classes = self.model.classes_
+        classes = list(self.model.classes_)
 
         results = []
         for p in probas:
-            idx = np.argmax(p)
+            idx = int(np.argmax(p))
             results.append({
-                "sentiment": classes[idx],
+                "sentiment": str(classes[idx]),
                 "confidence": round(float(p[idx]), 4),
             })
         return results

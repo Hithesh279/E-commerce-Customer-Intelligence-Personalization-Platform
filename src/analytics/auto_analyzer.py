@@ -10,10 +10,30 @@ import numpy as np
 import pandas as pd
 
 from src.nlp.aspect_extraction import extract_aspect_sentiment_from_text
+from src.nlp.preprocessing import clean_text, clean_text_series
 from src.nlp.sentiment_predict import SentimentPredictor
 from src.utils.logging import get_logger
 
 logger = get_logger("auto_analyzer")
+
+
+POSITIVE_LABELS = {"positive", "pos", "4", "5", "good", "happy", "true", "yes"}
+NEGATIVE_LABELS = {"negative", "neg", "1", "2", "0", "-1", "bad", "sad", "false", "no"}
+NEUTRAL_LABELS = {"neutral", "3", "mixed", "ok", "okay"}
+
+
+def _standardize_sentiment(val: Any) -> str:
+    """Map a pre-labelled value to Positive/Neutral/Negative. Unknown values stay "Unlabeled"."""
+    if pd.isna(val):
+        return "Unlabeled"
+    s = str(val).strip().lower()
+    if s in POSITIVE_LABELS:
+        return "Positive"
+    if s in NEGATIVE_LABELS:
+        return "Negative"
+    if s in NEUTRAL_LABELS:
+        return "Neutral"
+    return "Unlabeled"
 
 
 def detect_schema(df: pd.DataFrame) -> Dict[str, Any]:
@@ -48,7 +68,7 @@ def detect_schema(df: pd.DataFrame) -> Dict[str, Any]:
 
     if not detected["text_col"]:
         # Fallback: check object columns for long strings (ignoring ID columns)
-        for col in df.select_dtypes(include=["object"]).columns:
+        for col in df.select_dtypes(include=["object", "string"]).columns:
             low = cols_lower[col]
             if low.endswith("_id") or low == "id":
                 continue
@@ -194,107 +214,95 @@ def analyze_custom_reviews(
     rating_col: Optional[str] = None,
     sentiment_col: Optional[str] = None,
     max_records: int = 100000,
-) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+) -> Tuple[pd.DataFrame, Optional[Dict[str, Any]]]:
     """
-    Run high-performance sentiment classification and 11-aspect extraction on customer reviews.
-    Accurately supports pre-labeled sentiment columns, rating-based mapping, and fast vectorized ML inference
-    on arbitrarily large datasets (e.g. 25,000+ rows) without dummy neutral padding.
+    Classify review sentiment and extract product aspects from a customer-feedback table.
+
+    Sentiment source, in priority order: a pre-labelled sentiment column, then star ratings, then the
+    trained text classifier. The source used for each row is recorded in ``sentiment_source``.
+    Rows without a usable signal are labelled "Unlabeled" and are excluded from every percentage.
+
+    Returns (enriched_df, analytics). analytics is None when the table has no review signal at all.
     """
     enriched_df = df.copy()
+    has_sentiment_col = bool(sentiment_col) and sentiment_col in df.columns
+    has_rating_col = bool(rating_col) and rating_col in df.columns
+    has_text_col = bool(text_col) and text_col in df.columns
+    if not (has_sentiment_col or has_rating_col or has_text_col):
+        return enriched_df, None
+
     total_count = len(enriched_df)
     score_map = {"Positive": 1.0, "Neutral": 0.0, "Negative": -1.0}
+    texts = enriched_df[text_col].fillna("").astype(str).tolist() if has_text_col else [""] * total_count
 
-    # 1. If pre-labeled sentiment column exists:
-    if sentiment_col and sentiment_col in df.columns:
-        def _standardize_sentiment(val):
-            if pd.isna(val):
-                return "Neutral"
-            s = str(val).strip().lower()
-            if s in ["positive", "pos", "1", "4", "5", "good", "happy", "true", "yes"]:
-                return "Positive"
-            elif s in ["negative", "neg", "0", "-1", "2", "bad", "sad", "false", "no"]:
-                return "Negative"
-            return "Neutral"
-
-        enriched_df["predicted_sentiment"] = df[sentiment_col].apply(_standardize_sentiment)
-        enriched_df["sentiment_confidence"] = 0.95
-
-    # 2. If rating column exists (and no sentiment_col):
-    elif rating_col and rating_col in df.columns:
+    if has_sentiment_col:
+        labels = df[sentiment_col].apply(_standardize_sentiment)
+        enriched_df["predicted_sentiment"] = labels
+        enriched_df["sentiment_confidence"] = np.where(labels == "Unlabeled", np.nan, 0.95)
+        enriched_df["sentiment_source"] = "pre-labelled column"
+    elif has_rating_col:
         r = pd.to_numeric(df[rating_col], errors="coerce")
-        conditions = [r >= 4, r <= 2, r == 3]
-        choices = ["Positive", "Negative", "Neutral"]
-        enriched_df["predicted_sentiment"] = np.select(conditions, choices, default="Neutral")
-        enriched_df["sentiment_confidence"] = 0.90
-
-    # 3. If text column exists, run fast vectorized ML inference across all rows:
-    elif text_col and text_col in df.columns:
-        texts = enriched_df[text_col].fillna("").astype(str).tolist()
+        enriched_df["predicted_sentiment"] = np.select(
+            [r >= 4, r <= 2, r == 3], ["Positive", "Negative", "Neutral"], default="Unlabeled"
+        )
+        enriched_df["sentiment_confidence"] = np.where(r.notna(), 0.90, np.nan)
+        enriched_df["sentiment_source"] = "star rating"
+    else:
+        cleaned = clean_text_series(pd.Series(texts), remove_stopwords=False).tolist()
+        has_content = np.array([bool(c) for c in cleaned])
         try:
-            from src.nlp.sentiment_predict import SentimentPredictor
             predictor = SentimentPredictor()
-            # Fast vectorized TF-IDF transform and prediction
-            features = predictor.vectorizer.transform(texts)
+            features = predictor.vectorizer.transform(cleaned)
             probas = predictor.model.predict_proba(features)
             classes = predictor.model.classes_
-            max_indices = np.argmax(probas, axis=1)
-            sentiments = [classes[i] for i in max_indices]
-            confidences = [round(float(probas[i, max_indices[i]]), 3) for i in range(len(texts))]
-            enriched_df["predicted_sentiment"] = sentiments
-            enriched_df["sentiment_confidence"] = confidences
-        except Exception as e:
-            logger.warning(f"Could not run SentimentPredictor ({e}), falling back to heuristic classification.")
-            lowered = enriched_df[text_col].fillna("").astype(str).str.lower()
+            max_idx = np.argmax(probas, axis=1)
+            sentiments = np.array([classes[i] for i in max_idx], dtype=object)
+            confidences = np.round(probas[np.arange(len(texts)), max_idx], 3)
+            source = "trained text classifier"
+        except Exception as e:  # model artifacts missing or incompatible
+            logger.warning(f"Could not run SentimentPredictor ({e}); using keyword heuristic.")
+            lowered = pd.Series(texts).str.lower()
             is_pos = lowered.str.contains("great|excellent|love|good|fast|phenomenal|clean|best|amazing", regex=True)
             is_neg = lowered.str.contains("bad|terrible|worst|broken|awful|slow|poor|hate|disappointed", regex=True)
-            enriched_df["predicted_sentiment"] = np.where(is_pos, "Positive", np.where(is_neg, "Negative", "Neutral"))
-            enriched_df["sentiment_confidence"] = 0.85
-    else:
-        enriched_df["predicted_sentiment"] = "Positive"
-        enriched_df["sentiment_confidence"] = 0.80
+            sentiments = np.where(is_pos, "Positive", np.where(is_neg, "Negative", "Neutral")).astype(object)
+            confidences = np.full(len(texts), np.nan)
+            source = "keyword heuristic"
+        sentiments = np.where(has_content, sentiments, "Unlabeled")
+        enriched_df["predicted_sentiment"] = sentiments
+        enriched_df["sentiment_confidence"] = np.where(has_content, confidences, np.nan)
+        enriched_df["sentiment_source"] = source
 
-    # 4. Aspect Extraction on representative sample (up to 1,000 texts for instant processing)
-    aspect_records = []
-    aspect_tags_list = []
+    # Aspect extraction on a representative sample (first 1,000 texts). Rows beyond the sample are
+    # marked as not analysed rather than given invented aspect tags.
     sample_size = min(total_count, 1000)
-    process_texts = enriched_df[text_col].head(sample_size).fillna("").astype(str).tolist() if (text_col and text_col in enriched_df.columns) else []
+    aspect_records: List[Dict[str, Any]] = []
+    aspect_tags = ["Not analysed"] * total_count
+    if has_text_col:
+        for i in range(sample_size):
+            extracted = extract_aspect_sentiment_from_text(texts[i])
+            aspect_tags[i] = ", ".join(f"{a['aspect']} ({a['sentiment']})" for a in extracted) or "General"
+            aspect_records.extend({**a, "review_row": i} for a in extracted)
+    enriched_df["extracted_aspects"] = aspect_tags
 
-    if process_texts:
-        for t in process_texts:
-            extracted = extract_aspect_sentiment_from_text(t)
-            tags = [f"{a['aspect']} ({a['sentiment']})" for a in extracted]
-            aspect_tags_list.append(", ".join(tags) if tags else "General")
-            for a in extracted:
-                aspect_records.append(a)
-    else:
-        for asp in ["battery", "performance", "build_quality", "camera", "delivery", "price"]:
-            aspect_records.append({"aspect": asp, "sentiment": "Positive", "sentiment_score": 0.5})
+    labels = enriched_df["predicted_sentiment"]
+    labeled = labels[labels.isin(["Positive", "Neutral", "Negative"])]
+    n_labeled = int(len(labeled))
+    counts = labeled.value_counts()
+    sentiment_counts = {
+        "Positive": int(counts.get("Positive", 0)),
+        "Neutral": int(counts.get("Neutral", 0)),
+        "Negative": int(counts.get("Negative", 0)),
+    }
 
-    if len(aspect_tags_list) < total_count:
-        aspect_tags_list += ["General"] * (total_count - len(aspect_tags_list))
+    def _pct(n: int) -> Optional[float]:
+        return round(n / n_labeled * 100, 1) if n_labeled else None
 
-    enriched_df["extracted_aspects"] = aspect_tags_list
+    avg_polarity = round(float(labeled.map(score_map).mean()), 2) if n_labeled else None
+    avg_rating = None
+    if has_rating_col:
+        valid = pd.to_numeric(df[rating_col], errors="coerce").dropna()
+        avg_rating = round(float(valid.mean()), 2) if len(valid) else None
 
-    # Sentiment Breakdown across the ENTIRE dataset
-    sent_series = enriched_df["predicted_sentiment"].value_counts()
-    pos_count = int(sent_series.get("Positive", 0))
-    neu_count = int(sent_series.get("Neutral", 0))
-    neg_count = int(sent_series.get("Negative", 0))
-
-    pos_pct = round((pos_count / max(total_count, 1)) * 100, 1)
-    neu_pct = round((neu_count / max(total_count, 1)) * 100, 1)
-    neg_pct = round((neg_count / max(total_count, 1)) * 100, 1)
-
-    avg_polarity = round(float(enriched_df["predicted_sentiment"].map(score_map).mean()), 2)
-
-    # Average rating calculation
-    if rating_col and rating_col in df.columns:
-        valid_ratings = pd.to_numeric(df[rating_col], errors="coerce").dropna()
-        avg_rating = round(float(valid_ratings.mean()), 2) if len(valid_ratings) > 0 else 4.2
-    else:
-        avg_rating = round(float((pos_pct * 4.6 + neu_pct * 3.0 + neg_pct * 1.5) / 100.0), 2)
-
-    # Aspect Summary & Scale Mentions to Dataset Size
     scale_factor = max(1.0, total_count / max(sample_size, 1))
     if aspect_records:
         aspect_df = pd.DataFrame(aspect_records)
@@ -308,33 +316,32 @@ def analyze_custom_reviews(
         aspect_summary["avg_sentiment_score"] = aspect_summary["avg_sentiment_score"].round(2)
         aspect_summary = aspect_summary.sort_values("mentions", ascending=False)
     else:
-        aspect_summary = pd.DataFrame(columns=["aspect", "mentions", "avg_sentiment_score", "positive_mentions", "negative_mentions"])
+        aspect_summary = pd.DataFrame(
+            columns=["aspect", "mentions", "avg_sentiment_score", "positive_mentions", "negative_mentions"]
+        )
 
-    # Sample Quotes
     pos_quotes, neg_quotes = [], []
-    if text_col and text_col in enriched_df.columns:
-        pos_quotes = enriched_df[enriched_df["predicted_sentiment"] == "Positive"][text_col].dropna().head(3).tolist()
-        neg_quotes = enriched_df[enriched_df["predicted_sentiment"] == "Negative"][text_col].dropna().head(3).tolist()
+    if has_text_col:
+        labeled_text = enriched_df.loc[labels.isin(["Positive", "Negative"]) & (enriched_df[text_col].fillna("").astype(str).str.strip() != "")]
+        pos_quotes = labeled_text[labeled_text["predicted_sentiment"] == "Positive"][text_col].astype(str).head(3).tolist()
+        neg_quotes = labeled_text[labeled_text["predicted_sentiment"] == "Negative"][text_col].astype(str).head(3).tolist()
 
-    sentiment_counts = {
-        "Positive": pos_count,
-        "Neutral": neu_count,
-        "Negative": neg_count,
-    }
-
+    sources = sorted(set(enriched_df["sentiment_source"]))
     analytics = {
         "total_reviews": total_count,
-        "positive_pct": pos_pct,
-        "neutral_pct": neu_pct,
-        "negative_pct": neg_pct,
+        "labeled_reviews": n_labeled,
+        "positive_pct": _pct(sentiment_counts["Positive"]),
+        "neutral_pct": _pct(sentiment_counts["Neutral"]),
+        "negative_pct": _pct(sentiment_counts["Negative"]),
         "sentiment_counts": sentiment_counts,
+        "sentiment_source": ", ".join(sources),
         "avg_rating": avg_rating,
         "avg_polarity": avg_polarity,
         "aspect_summary": aspect_summary,
+        "aspect_records": aspect_records,
         "positive_quotes": pos_quotes,
         "negative_quotes": neg_quotes,
     }
-
     return enriched_df, analytics
 
 
@@ -348,57 +355,62 @@ def analyze_custom_transactions(
     status_col: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Compute commercial health metrics, sales trends, category distribution,
-    and product rankings from transaction data.
-    """
-    total_orders = len(df)
-    total_revenue = 0.0
-    aov = 0.0
-    return_rate = 0.0
+    Compute commercial metrics from transaction-like data.
 
-    if revenue_col and revenue_col in df.columns:
-        total_revenue = round(float(df[revenue_col].sum()), 2)
+    Metrics that the mapped columns cannot support are returned as None (for example total_revenue
+    without a revenue column), never as a guessed value.
+    """
+    has_revenue = bool(revenue_col) and revenue_col in df.columns
+    total_orders = len(df) if has_revenue else None
+    total_revenue = None
+    aov = None
+    return_rate = None
+
+    if has_revenue:
+        revenue = pd.to_numeric(df[revenue_col], errors="coerce")
+        total_revenue = round(float(revenue.sum()), 2)
         aov = round(total_revenue / max(1, total_orders), 2)
 
     if status_col and status_col in df.columns:
-        returned = (df[status_col].astype(str).str.lower().str.contains("return|cancel|churn")).sum()
-        return_rate = round((returned / max(1, total_orders)) * 100, 1)
+        returned = int(df[status_col].astype(str).str.lower().str.contains("return|cancel|churn").sum())
+        return_rate = round((returned / max(1, len(df))) * 100, 1)
 
-    # Time series aggregation
     timeline_df = pd.DataFrame()
-    if date_col and date_col in df.columns and revenue_col and revenue_col in df.columns:
+    if date_col and date_col in df.columns and has_revenue:
         temp = df.copy()
         temp["parsed_date"] = pd.to_datetime(temp[date_col], errors="coerce")
+        temp["_revenue"] = pd.to_numeric(temp[revenue_col], errors="coerce")
         temp = temp.dropna(subset=["parsed_date"])
         if not temp.empty:
             temp["period"] = temp["parsed_date"].dt.to_period("M").astype(str)
             timeline_df = temp.groupby("period").agg(
-                revenue=(revenue_col, "sum"),
+                revenue=("_revenue", "sum"),
                 orders=("parsed_date", "count"),
             ).reset_index().sort_values("period")
             timeline_df["revenue"] = timeline_df["revenue"].round(2)
 
-    # Category distribution
     cat_df = pd.DataFrame()
-    if category_col and category_col in df.columns and revenue_col and revenue_col in df.columns:
-        cat_df = df.groupby(category_col).agg(
-            revenue=(revenue_col, "sum"),
-            orders=(category_col, "count"),
+    if category_col and category_col in df.columns and has_revenue:
+        work = df.assign(_revenue=pd.to_numeric(df[revenue_col], errors="coerce"))
+        cat_df = work.groupby(category_col).agg(
+            revenue=("_revenue", "sum"),
+            orders=("_revenue", "count"),
         ).reset_index()
         cat_df["share_pct"] = ((cat_df["revenue"] / max(0.01, total_revenue)) * 100).round(1)
+        cat_df["revenue"] = cat_df["revenue"].round(2)
         cat_df = cat_df.sort_values("revenue", ascending=False)
 
-    # Top Products
     prod_df = pd.DataFrame()
     if product_col and product_col in df.columns:
+        work = df.assign(_revenue=pd.to_numeric(df[revenue_col], errors="coerce")) if has_revenue else df
         agg_kwargs = {"orders": (product_col, "count")}
-        if revenue_col and revenue_col in df.columns:
-            agg_kwargs["revenue"] = (revenue_col, "sum")
-        prod_df = df.groupby(product_col).agg(**agg_kwargs).reset_index()
+        if has_revenue:
+            agg_kwargs["revenue"] = ("_revenue", "sum")
+        prod_df = work.groupby(product_col).agg(**agg_kwargs).reset_index()
         sort_by = "revenue" if "revenue" in prod_df.columns else "orders"
         prod_df = prod_df.sort_values(sort_by, ascending=False).head(10)
 
-    unique_custs = int(df[customer_col].nunique()) if customer_col and customer_col in df.columns else 0
+    unique_custs = int(df[customer_col].nunique()) if customer_col and customer_col in df.columns else None
 
     return {
         "total_revenue": total_revenue,
@@ -420,10 +432,11 @@ def calculate_custom_rfm(
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
     Calculate customer-level RFM metrics and map behavioral segments.
-    Supports either transactional rows (aggregating to customer level)
-    or pre-aggregated customer tables (with lifetime_spend and total_orders).
+
+    Accepts transaction rows (aggregated per customer) or a pre-aggregated customer table that has
+    lifetime spend and order counts. Recency is scored only when dates are available. Without dates
+    the segments use frequency and monetary value alone, and recency-based metrics are None.
     """
-    # Check if table is already customer-level with lifetime_spend
     cols_low = {c: str(c).lower() for c in df.columns}
     has_lifetime = any("lifetime_spend" in c or "total_spend" in c for c in cols_low.values())
     has_orders = any("total_orders" in c or "order_count" in c for c in cols_low.values())
@@ -431,70 +444,99 @@ def calculate_custom_rfm(
     if has_lifetime and has_orders:
         spend_col = [c for c, low in cols_low.items() if "lifetime_spend" in low or "total_spend" in low][0]
         orders_col = [c for c, low in cols_low.items() if "total_orders" in low or "order_count" in low][0]
-
         rfm = df[[customer_col, spend_col, orders_col]].copy()
+        rfm[spend_col] = pd.to_numeric(rfm[spend_col], errors="coerce")
+        rfm[orders_col] = pd.to_numeric(rfm[orders_col], errors="coerce")
         rfm = rfm.rename(columns={spend_col: "monetary_total", orders_col: "frequency"})
-
+        rfm = rfm.groupby(customer_col, as_index=False).agg(monetary_total=("monetary_total", "sum"), frequency=("frequency", "sum"))
         if date_col and date_col in df.columns:
-            parsed_d = pd.to_datetime(df[date_col], errors="coerce")
-            ref_d = parsed_d.max() + pd.Timedelta(days=1)
-            rfm["recency_days"] = (ref_d - parsed_d).dt.days.fillna(90).astype(int)
+            parsed = pd.to_datetime(df[date_col], errors="coerce")
+            ref_date = parsed.max() + pd.Timedelta(days=1)
+            last_seen = pd.DataFrame({customer_col: df[customer_col], "_d": parsed}).groupby(customer_col)["_d"].max()
+            rfm["recency_days"] = (ref_date - rfm[customer_col].map(last_seen)).dt.days
         else:
-            rfm["recency_days"] = np.random.randint(5, 120, size=len(rfm))
+            rfm["recency_days"] = np.nan
     else:
-        # Transaction-level aggregation
         if not date_col or not revenue_col:
             raise ValueError("Transaction-level RFM requires both date_col and revenue_col.")
-
         temp = df.copy()
         temp["parsed_date"] = pd.to_datetime(temp[date_col], errors="coerce")
+        temp["_revenue"] = pd.to_numeric(temp[revenue_col], errors="coerce")
+        temp = temp.dropna(subset=[customer_col])
         ref_date = temp["parsed_date"].max() + pd.Timedelta(days=1)
-
         rfm = temp.groupby(customer_col).agg(
-            recency_days=("parsed_date", lambda dt: (ref_date - dt.max()).days),
+            last_date=("parsed_date", "max"),
             frequency=(customer_col, "count"),
-            monetary_total=(revenue_col, "sum"),
+            monetary_total=("_revenue", "sum"),
         ).reset_index()
+        rfm["recency_days"] = (ref_date - rfm["last_date"]).dt.days
+        rfm = rfm.drop(columns="last_date")
 
-    # Quintile rank scores (1 to 5)
     n_cust = len(rfm)
+    if n_cust < 2:
+        raise ValueError("RFM segmentation needs at least 2 customers.")
+    recency_available = bool(rfm["recency_days"].notna().any())
     q = min(5, max(2, n_cust // 4))
 
-    rfm["r_score"] = pd.qcut(rfm["recency_days"].rank(method="first", ascending=False), q=q, labels=range(1, q + 1)).astype(int)
-    rfm["f_score"] = pd.qcut(rfm["frequency"].rank(method="first"), q=q, labels=range(1, q + 1)).astype(int)
-    rfm["m_score"] = pd.qcut(rfm["monetary_total"].rank(method="first"), q=q, labels=range(1, q + 1)).astype(int)
+    def _quintile(series: pd.Series, higher_is_better: bool) -> pd.Series:
+        ranks = series.rank(method="first", ascending=higher_is_better)
+        return pd.qcut(ranks, q=q, labels=range(1, q + 1)).astype(int)
 
-    # Segment mapping
+    if recency_available:
+        rfm["r_score"] = _quintile(rfm["recency_days"], higher_is_better=False)
+    else:
+        rfm["r_score"] = np.nan
+    rfm["f_score"] = _quintile(rfm["frequency"], higher_is_better=True)
+    rfm["m_score"] = _quintile(rfm["monetary_total"], higher_is_better=True)
+
     def map_segment(row: pd.Series) -> str:
-        r, f, m = row["r_score"], row["f_score"], row["m_score"]
+        f, m = row["f_score"], row["m_score"]
+        if not recency_available:
+            if f >= 4 and m >= 4:
+                return "High Value"
+            if f >= 3 and m >= 3:
+                return "Potential Loyalists"
+            if f <= 2 and m <= 2:
+                return "Low Value"
+            return "Core"
+        r = row["r_score"]
         if r >= 4 and f >= 4 and m >= 4:
             return "Champions"
-        elif f >= 3 and m >= 3:
+        if f >= 3 and m >= 3:
             return "Loyal Customers"
-        elif r >= 4 and f <= 2:
+        if r >= 4 and f <= 2:
             return "New / Promising"
-        elif r <= 2 and f >= 3:
+        if r <= 2 and f >= 3:
             return "At Risk"
-        elif r <= 2 and f <= 2:
+        if r <= 2 and f <= 2:
             return "Lost / Inactive"
         return "Potential Loyalists"
 
     rfm["rfm_segment"] = rfm.apply(map_segment, axis=1)
+    if recency_available:
+        rfm["rfm_score"] = rfm["r_score"].astype(int).astype(str) + rfm["f_score"].astype(str) + rfm["m_score"].astype(str)
+    else:
+        rfm["rfm_score"] = "-" + rfm["f_score"].astype(str) + rfm["m_score"].astype(str)
 
     seg_summary = rfm["rfm_segment"].value_counts().reset_index()
     seg_summary.columns = ["segment", "count"]
-    seg_summary["share_pct"] = ((seg_summary["count"] / len(rfm)) * 100).round(1)
+    seg_summary["share_pct"] = ((seg_summary["count"] / n_cust) * 100).round(1)
+
+    def _count(name: str) -> Optional[int]:
+        if not recency_available:
+            return None
+        return int((rfm["rfm_segment"] == name).sum())
 
     metrics = {
-        "total_customers": len(rfm),
-        "avg_recency_days": round(float(rfm["recency_days"].mean()), 1),
+        "total_customers": n_cust,
+        "recency_available": recency_available,
+        "avg_recency_days": round(float(rfm["recency_days"].mean()), 1) if recency_available else None,
         "avg_frequency": round(float(rfm["frequency"].mean()), 1),
         "avg_monetary": round(float(rfm["monetary_total"].mean()), 2),
         "segment_summary": seg_summary,
-        "champions_count": int(seg_summary[seg_summary["segment"] == "Champions"]["count"].sum()),
-        "at_risk_count": int(seg_summary[seg_summary["segment"] == "At Risk"]["count"].sum()),
+        "champions_count": _count("Champions"),
+        "at_risk_count": _count("At Risk"),
     }
-
     return rfm, metrics
 
 

@@ -31,5 +31,20 @@ def test_aspect_extraction_pricing_and_delivery():
     assert aspect_map.get("price") == "Negative"
 
 
+def test_aspect_extraction_negation_window():
+    text = "The battery is not good, and the display is never bright."
+    aspects = extract_aspect_sentiment_from_text(text)
+    aspect_map = {a["aspect"]: a for a in aspects}
+    assert aspect_map["battery"]["sentiment"] == "Negative"
+    assert aspect_map["battery"]["sentiment_score"] < 0
+    assert aspect_map["display"]["sentiment"] == "Negative"
+    assert aspect_map["display"]["sentiment_score"] < 0
+
+    pos_negated = extract_aspect_sentiment_from_text("Responsive performance with no lag.")
+    perf_item = next(a for a in pos_negated if a["aspect"] == "performance")
+    assert perf_item["sentiment"] == "Positive"
+    assert perf_item["sentiment_score"] > 0
+
+
 def test_aspect_extraction_empty_text():
     assert extract_aspect_sentiment_from_text("") == []

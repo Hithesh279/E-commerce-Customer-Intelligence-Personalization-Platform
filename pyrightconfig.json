@@ -1,0 +1,21 @@
+{
+  "include": [
+    "src",
+    "app",
+    "api",
+    "tests"
+  ],
+  "extraPaths": [
+    ".",
+    "src"
+  ],
+  "executionEnvironments": [
+    {
+      "root": ".",
+      "extraPaths": [
+        ".",
+        "src"
+      ]
+    }
+  ]
+}

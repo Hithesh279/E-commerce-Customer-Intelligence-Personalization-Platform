@@ -7,6 +7,7 @@ import pytest
 from src.data.validation import (
     check_duplicates,
     check_foreign_keys,
+    validate_dataset_collection,
     validate_schema,
     validate_transaction_math,
 )
@@ -55,3 +56,17 @@ def test_transaction_math_validation():
     ])
     mismatches = validate_transaction_math(txns)
     assert mismatches == 1
+
+
+def test_validate_dataset_collection_full_checks(sample_customers, sample_products, sample_transactions):
+    dataset = {
+        "customers": sample_customers,
+        "products": sample_products,
+        "transactions": sample_transactions,
+    }
+    res = validate_dataset_collection(dataset)
+    assert "fk_txns_customers_orphans" in res
+    assert "fk_txns_products_orphans" in res
+    assert "transaction_math_mismatches" in res
+    assert res["fk_txns_customers_orphans"] == 0
+    assert res["fk_txns_products_orphans"] == 0

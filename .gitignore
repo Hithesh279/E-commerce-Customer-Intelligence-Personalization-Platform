@@ -35,5 +35,7 @@ models/**/*.json
 
 # Streamlit & OS
 .streamlit/
+.vscode/
+exports/
 .DS_Store
 Thumbs.db

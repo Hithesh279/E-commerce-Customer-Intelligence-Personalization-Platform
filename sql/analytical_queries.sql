@@ -1,6 +1,7 @@
 -- ====================================================================
 -- E-commerce Customer Intelligence Platform - Analytical SQL Queries
 -- Demonstrating JOINs, CTEs, Window Functions, and Business Aggregations
+-- Each aggregate is computed in its own CTE so that joins never multiply rows.
 -- ====================================================================
 
 -- --------------------------------------------------------------------
@@ -15,7 +16,8 @@ WITH product_sales AS (
         COUNT(t.transaction_id) AS total_orders,
         SUM(t.quantity) AS units_sold,
         ROUND(SUM(CASE WHEN t.return_status != 'Returned' THEN t.total_amount ELSE 0 END), 2) AS net_revenue,
-        ROUND(SUM(CASE WHEN t.return_status = 'Returned' THEN 1.0 ELSE 0.0 END) * 100.0 / COUNT(t.transaction_id), 2) AS return_rate_pct
+        ROUND(SUM(CASE WHEN t.return_status = 'Returned' THEN 1.0 ELSE 0.0 END) * 100.0
+              / NULLIF(COUNT(t.transaction_id), 0), 2) AS return_rate_pct
     FROM products p
     LEFT JOIN transactions t ON p.product_id = t.product_id
     GROUP BY p.product_id, p.product_name, p.category, p.price
@@ -37,21 +39,34 @@ LIMIT 10;
 
 -- --------------------------------------------------------------------
 -- QUERY 2: Product Discrepancy Discovery: High Sales + Low Customer Sentiment
--- Products in Top 25% of Sales Volume but Bottom 25% of Average Rating
+-- Products in the top quartile of units sold but bottom quartile of average rating.
+-- Units and ratings are aggregated separately, so joining them cannot inflate units.
 -- --------------------------------------------------------------------
-WITH product_metrics AS (
+WITH unit_sales AS (
+    SELECT product_id, SUM(quantity) AS total_units_sold
+    FROM transactions
+    GROUP BY product_id
+),
+review_stats AS (
+    SELECT
+        product_id,
+        ROUND(AVG(rating), 2) AS avg_rating,
+        COUNT(DISTINCT review_id) AS review_count
+    FROM reviews
+    GROUP BY product_id
+    HAVING COUNT(DISTINCT review_id) >= 5
+),
+product_metrics AS (
     SELECT
         p.product_id,
         p.product_name,
         p.category,
-        SUM(t.quantity) AS total_units_sold,
-        ROUND(AVG(r.rating), 2) AS avg_rating,
-        COUNT(DISTINCT r.review_id) AS review_count
+        u.total_units_sold,
+        r.avg_rating,
+        r.review_count
     FROM products p
-    INNER JOIN transactions t ON p.product_id = t.product_id
-    INNER JOIN reviews r ON p.product_id = r.product_id
-    GROUP BY p.product_id, p.product_name, p.category
-    HAVING COUNT(DISTINCT r.review_id) >= 5
+    INNER JOIN unit_sales u ON u.product_id = p.product_id
+    INNER JOIN review_stats r ON r.product_id = p.product_id
 ),
 quartiles AS (
     SELECT

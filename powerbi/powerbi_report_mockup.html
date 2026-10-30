@@ -76,13 +76,13 @@
 
     /* Bar representations */
     .bar-row { display: flex; align-items: center; margin-bottom: 8px; font-size: 12px; }
-    .bar-label { width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bar-label { width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .bar-track { flex: 1; height: 16px; background: #edebe9; border-radius: 2px; overflow: hidden; margin: 0 10px; position: relative; }
-    .bar-fill { height: 100%; background: var(--accent); border-radius: 2px; }
+    .bar-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.25s ease; }
     .bar-fill.gold { background: #ffaa44; }
     .bar-fill.green { background: #107c41; }
     .bar-fill.red { background: #d13438; }
-    .bar-val { width: 60px; text-align: right; font-weight: 600; }
+    .bar-val { width: 72px; text-align: right; font-weight: 600; }
 
     /* Bottom Navigation Tabs */
     .bottom-tabs { background: #ffffff; border-top: 1px solid #d2d0ce; display: flex; padding: 0 16px; gap: 4px; box-shadow: 0 -2px 4px rgba(0,0,0,0.04); }
@@ -100,7 +100,7 @@
       <span>E-commerce Customer Intelligence & Personalization Platform</span>
       <span class="tag">Star-Schema Model</span>
     </h1>
-    <div class="controls">DirectQuery / Import Cache • Fully Responsive DAX</div>
+    <div class="controls">DirectQuery / Import Cache • Grounded in Processed Star-Schema Tables</div>
   </div>
 
   <div class="workspace">
@@ -113,12 +113,12 @@
         <select id="slicerCategory" onchange="applyFilters()">
           <option value="ALL">All Categories</option>
           <option value="Electronics">Electronics</option>
-          <option value="Clothing">Clothing</option>
-          <option value="Home & Kitchen">Home & Kitchen</option>
-          <option value="Beauty">Beauty</option>
           <option value="Sports">Sports</option>
-          <option value="Books">Books</option>
+          <option value="Home & Kitchen">Home & Kitchen</option>
+          <option value="Clothing">Clothing</option>
           <option value="Accessories">Accessories</option>
+          <option value="Beauty">Beauty</option>
+          <option value="Books">Books</option>
         </select>
       </div>
 
@@ -126,10 +126,10 @@
         <label for="slicerSegment">Customer Segment</label>
         <select id="slicerSegment" onchange="applyFilters()">
           <option value="ALL">All Segments</option>
-          <option value="High Value">High Value</option>
           <option value="Regular">Regular</option>
           <option value="Occasional">Occasional</option>
           <option value="Discount Sensitive">Discount Sensitive</option>
+          <option value="High Value">High Value</option>
           <option value="At Risk">At Risk</option>
           <option value="New Customer">New Customer</option>
         </select>
@@ -144,13 +144,14 @@
         </select>
       </div>
 
-      <div style="margin-top:auto; font-size:11px; color:#a19f9d; line-height: 1.4;">
+      <div style="margin-top:auto; font-size:11px; color:#a19f9d; line-height: 1.5;">
         <strong>Data Model Info:</strong><br>
         • 7 Star-Schema Tables<br>
-        • 5,000 Customers<br>
-        • 40,000 Sales Rows<br>
-        • 15,000 Reviews<br>
-        • 128,000 Interactions
+        • 200 Customers / 50 SKUs<br>
+        • 1,000 Store Orders<br>
+        • 200 Store Reviews (294 Aspects)<br>
+        • 28,598 Real-World NLP Corpus<br>
+        • 3,000 Browsing Interactions
       </div>
     </div>
 
@@ -162,58 +163,58 @@
         <div class="kpi-grid">
           <div class="kpi-card green">
             <span class="kpi-title">Total Net Revenue</span>
-            <span class="kpi-value" id="kpiNetRev">$4,862,410</span>
-            <span class="kpi-subtext pos">▲ +14.2% MoM</span>
+            <span class="kpi-value" id="kpiNetRev">$215,812.09</span>
+            <span class="kpi-subtext pos" id="kpiMom">▲ +15.2% MoM (2024-12 vs 2024-11)</span>
           </div>
           <div class="kpi-card">
             <span class="kpi-title">Total Orders</span>
-            <span class="kpi-value" id="kpiOrders">40,000</span>
-            <span class="kpi-subtext">Completed transactions</span>
+            <span class="kpi-value" id="kpiOrders">1,000</span>
+            <span class="kpi-subtext" id="kpiGrossSub">Gross Revenue: $246,109.47</span>
           </div>
           <div class="kpi-card">
             <span class="kpi-title">Average Order Value</span>
-            <span class="kpi-value" id="kpiAov">$121.56</span>
-            <span class="kpi-subtext">Across all baskets</span>
+            <span class="kpi-value" id="kpiAov">$249.49</span>
+            <span class="kpi-subtext">Net revenue per completed order</span>
           </div>
           <div class="kpi-card orange">
             <span class="kpi-title">Overall Return Rate</span>
-            <span class="kpi-value" id="kpiReturn">7.4%</span>
-            <span class="kpi-subtext neg">▲ 0.3% vs target</span>
+            <span class="kpi-value" id="kpiReturn">13.5%</span>
+            <span class="kpi-subtext neg" id="kpiReturnSub">▲ Benchmark: below 8.0%</span>
           </div>
-          <div class="kpi-card green">
+          <div class="kpi-card">
             <span class="kpi-title">Customer Satisfaction</span>
-            <span class="kpi-value">3.88★</span>
-            <span class="kpi-subtext pos">72.4% Positive Sentiment</span>
+            <span class="kpi-value" id="kpiRating">3.03★</span>
+            <span class="kpi-subtext" id="kpiSentSub">37.5% Positive • 25.0% Neutral</span>
           </div>
         </div>
 
         <div class="visuals-grid">
           <div class="visual-card">
             <div class="visual-header">
-              <span class="visual-title">Net Sales by Category ($)</span>
+              <span class="visual-title">Gross Sales by Category ($)</span>
             </div>
             <div class="visual-body" id="catSalesBody">
-              <div class="bar-row"><span class="bar-label">Electronics</span><div class="bar-track"><div class="bar-fill" style="width: 88%;"></div></div><span class="bar-val">$1.42M</span></div>
-              <div class="bar-row"><span class="bar-label">Home & Kitchen</span><div class="bar-track"><div class="bar-fill" style="width: 65%;"></div></div><span class="bar-val">$980K</span></div>
-              <div class="bar-row"><span class="bar-label">Sports</span><div class="bar-track"><div class="bar-fill" style="width: 52%;"></div></div><span class="bar-val">$765K</span></div>
-              <div class="bar-row"><span class="bar-label">Clothing</span><div class="bar-track"><div class="bar-fill" style="width: 48%;"></div></div><span class="bar-val">$695K</span></div>
-              <div class="bar-row"><span class="bar-label">Accessories</span><div class="bar-track"><div class="bar-fill" style="width: 35%;"></div></div><span class="bar-val">$490K</span></div>
-              <div class="bar-row"><span class="bar-label">Beauty</span><div class="bar-track"><div class="bar-fill" style="width: 28%;"></div></div><span class="bar-val">$320K</span></div>
-              <div class="bar-row"><span class="bar-label">Books</span><div class="bar-track"><div class="bar-fill" style="width: 18%;"></div></div><span class="bar-val">$192K</span></div>
+              <div class="bar-row"><span class="bar-label">Electronics</span><div class="bar-track"><div class="bar-fill" style="width: 100%;"></div></div><span class="bar-val">$113,375</span></div>
+              <div class="bar-row"><span class="bar-label">Sports</span><div class="bar-track"><div class="bar-fill" style="width: 53%;"></div></div><span class="bar-val">$60,218</span></div>
+              <div class="bar-row"><span class="bar-label">Home & Kitchen</span><div class="bar-track"><div class="bar-fill" style="width: 34%;"></div></div><span class="bar-val">$38,930</span></div>
+              <div class="bar-row"><span class="bar-label">Clothing</span><div class="bar-track"><div class="bar-fill" style="width: 13%;"></div></div><span class="bar-val">$14,827</span></div>
+              <div class="bar-row"><span class="bar-label">Accessories</span><div class="bar-track"><div class="bar-fill" style="width: 8%;"></div></div><span class="bar-val">$9,254</span></div>
+              <div class="bar-row"><span class="bar-label">Beauty</span><div class="bar-track"><div class="bar-fill" style="width: 5%;"></div></div><span class="bar-val">$5,499</span></div>
+              <div class="bar-row"><span class="bar-label">Books</span><div class="bar-track"><div class="bar-fill" style="width: 4%;"></div></div><span class="bar-val">$4,006</span></div>
             </div>
           </div>
 
           <div class="visual-card">
             <div class="visual-header">
-              <span class="visual-title">Revenue by Customer Segment</span>
+              <span class="visual-title">Net Revenue by Customer Segment ($)</span>
             </div>
             <div class="visual-body">
-              <div class="bar-row"><span class="bar-label">High Value</span><div class="bar-track"><div class="bar-fill gold" style="width: 90%;"></div></div><span class="bar-val">$1.78M</span></div>
-              <div class="bar-row"><span class="bar-label">Regular</span><div class="bar-track"><div class="bar-fill gold" style="width: 72%;"></div></div><span class="bar-val">$1.41M</span></div>
-              <div class="bar-row"><span class="bar-label">Occasional</span><div class="bar-track"><div class="bar-fill gold" style="width: 45%;"></div></div><span class="bar-val">$810K</span></div>
-              <div class="bar-row"><span class="bar-label">Discount Sensitive</span><div class="bar-track"><div class="bar-fill gold" style="width: 30%;"></div></div><span class="bar-val">$512K</span></div>
-              <div class="bar-row"><span class="bar-label">New Customer</span><div class="bar-track"><div class="bar-fill gold" style="width: 18%;"></div></div><span class="bar-val">$215K</span></div>
-              <div class="bar-row"><span class="bar-label">At Risk</span><div class="bar-track"><div class="bar-fill red" style="width: 12%;"></div></div><span class="bar-val">$135K</span></div>
+              <div class="bar-row"><span class="bar-label">Regular (58)</span><div class="bar-track"><div class="bar-fill gold" style="width: 100%;"></div></div><span class="bar-val">$67,406</span></div>
+              <div class="bar-row"><span class="bar-label">Occasional (59)</span><div class="bar-track"><div class="bar-fill gold" style="width: 92%;"></div></div><span class="bar-val">$62,106</span></div>
+              <div class="bar-row"><span class="bar-label">Discount Sens. (30)</span><div class="bar-track"><div class="bar-fill gold" style="width: 54%;"></div></div><span class="bar-val">$36,513</span></div>
+              <div class="bar-row"><span class="bar-label">High Value (28)</span><div class="bar-track"><div class="bar-fill green" style="width: 43%;"></div></div><span class="bar-val">$28,795</span></div>
+              <div class="bar-row"><span class="bar-label">At Risk (14)</span><div class="bar-track"><div class="bar-fill red" style="width: 19%;"></div></div><span class="bar-val">$12,882</span></div>
+              <div class="bar-row"><span class="bar-label">New Customer (11)</span><div class="bar-track"><div class="bar-fill" style="width: 12%;"></div></div><span class="bar-val">$8,109</span></div>
             </div>
           </div>
         </div>
@@ -224,26 +225,27 @@
         <div class="visuals-grid">
           <div class="visual-card full-width">
             <div class="visual-header">
-              <span class="visual-title">Customer RFM Segmentation Matrix</span>
+              <span class="visual-title">Customer RFM Behavioral Segmentation Matrix (200 Customers)</span>
             </div>
             <div class="visual-body">
               <table class="pbi-table">
                 <thead>
                   <tr>
-                    <th>RFM Segment</th>
+                    <th>RFM Behavioral Cluster</th>
                     <th>Customer Count</th>
                     <th>Avg Recency (Days)</th>
                     <th>Avg Order Frequency</th>
-                    <th>Avg Monetary Spend ($)</th>
-                    <th>Repeat Rate %</th>
+                    <th>Avg Net Spend ($)</th>
+                    <th>Retention Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr><td><strong>Champions / High Value</strong></td><td>624</td><td>14</td><td>12.4</td><td>$2,840.50</td><td><span class="badge green">98.5%</span></td></tr>
-                  <tr><td><strong>Loyal Customers</strong></td><td>1,420</td><td>32</td><td>8.2</td><td>$1,120.30</td><td><span class="badge green">91.2%</span></td></tr>
-                  <tr><td><strong>Promising / New</strong></td><td>780</td><td>18</td><td>2.1</td><td>$340.10</td><td><span class="badge blue">32.4%</span></td></tr>
-                  <tr><td><strong>At Risk / Attention</strong></td><td>540</td><td>184</td><td>6.8</td><td>$790.40</td><td><span class="badge red">84.0%</span></td></tr>
-                  <tr><td><strong>Hibernating / Inactive</strong></td><td>890</td><td>260</td><td>1.4</td><td>$145.80</td><td><span class="badge red">12.1%</span></td></tr>
+                  <tr><td><strong>Champions / High Value</strong></td><td>33</td><td>28.8</td><td>7.3</td><td>$2,109.10</td><td><span class="badge green">VIP Champions</span></td></tr>
+                  <tr><td><strong>Loyal Customers</strong></td><td>56</td><td>71.3</td><td>6.0</td><td>$1,095.50</td><td><span class="badge green">Core Loyal</span></td></tr>
+                  <tr><td><strong>Promising / New</strong></td><td>15</td><td>25.4</td><td>3.6</td><td>$750.50</td><td><span class="badge blue">Growth Cohort</span></td></tr>
+                  <tr><td><strong>Regular</strong></td><td>13</td><td>120.2</td><td>3.2</td><td>$624.90</td><td><span class="badge blue">Steady</span></td></tr>
+                  <tr><td><strong>At Risk / Needs Attention</strong></td><td>28</td><td>257.0</td><td>5.6</td><td>$1,113.10</td><td><span class="badge red">Win-Back Priority</span></td></tr>
+                  <tr><td><strong>Hibernating / Inactive</strong></td><td>55</td><td>402.2</td><td>3.1</td><td>$623.90</td><td><span class="badge red">Re-Engagement</span></td></tr>
                 </tbody>
               </table>
             </div>
@@ -256,7 +258,7 @@
         <div class="visuals-grid">
           <div class="visual-card full-width">
             <div class="visual-header">
-              <span class="visual-title">Product Anomaly & Discrepancy Matrix (High Sales / Low Sentiment)</span>
+              <span class="visual-title">Product Anomaly & Discrepancy Matrix (High Sales / Low Sentiment & Hidden Gems)</span>
             </div>
             <div class="visual-body">
               <table class="pbi-table">
@@ -266,35 +268,73 @@
                     <th>Product Name</th>
                     <th>Category</th>
                     <th>Units Sold</th>
-                    <th>Net Sales</th>
+                    <th>Net Revenue</th>
                     <th>Avg Rating</th>
                     <th>Return Rate %</th>
-                    <th>Business Flag</th>
+                    <th>Business Discrepancy Flag</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr style="background:#fff3f3;">
-                    <td><strong>PROD_0005</strong></td>
-                    <td>NovaByte UltraSense 502 Smartphone</td>
-                    <td>Electronics</td>
-                    <td>1,248</td>
-                    <td>$486,720</td>
-                    <td>2.14★</td>
-                    <td><strong style="color:var(--danger)">34.2%</strong></td>
+                    <td><strong>PROD_0003</strong></td>
+                    <td>ChefCraft Eco Prime 408 Chef Knives</td>
+                    <td>Home & Kitchen</td>
+                    <td>72</td>
+                    <td>$18,215.37</td>
+                    <td>2.30★</td>
+                    <td>1.8%</td>
                     <td><span class="badge red">High Sales + Poor Sentiment</span></td>
                   </tr>
-                  <tr style="background:#f4fff4;">
-                    <td><strong>PROD_0025</strong></td>
-                    <td>ChefCraft Signature Knife Set 810</td>
-                    <td>Home & Kitchen</td>
-                    <td>142</td>
-                    <td>$42,600</td>
-                    <td>4.82★</td>
-                    <td><strong style="color:var(--success)">1.8%</strong></td>
-                    <td><span class="badge green">Low Sales + Stellar Sentiment</span></td>
+                  <tr style="background:#fff3f3;">
+                    <td><strong>PROD_0004</strong></td>
+                    <td>LuxeEssence Pro Max 822 Mineral Sunscreens</td>
+                    <td>Beauty</td>
+                    <td>56</td>
+                    <td>$2,077.60</td>
+                    <td>2.40★</td>
+                    <td>2.6%</td>
+                    <td><span class="badge red">High Sales + Poor Sentiment</span></td>
                   </tr>
-                  <tr><td>PROD_0012</td><td>AeroFit HyperFlow 320 Earbuds</td><td>Audio</td><td>840</td><td>$126,000</td><td>4.12★</td><td>6.4%</td><td><span class="badge blue">Healthy Top-Seller</span></td></tr>
-                  <tr><td>PROD_0044</td><td>VeloceWear Active Track Jacket</td><td>Clothing</td><td>610</td><td>$73,200</td><td>4.25★</td><td>7.1%</td><td><span class="badge blue">Healthy Top-Seller</span></td></tr>
+                  <tr style="background:#fff3f3;">
+                    <td><strong>PROD_0006</strong></td>
+                    <td>InsightBooks Ultra Prime 431 Biographies</td>
+                    <td>Books</td>
+                    <td>38</td>
+                    <td>$734.28</td>
+                    <td>2.50★</td>
+                    <td><strong style="color:var(--danger)">10.3%</strong></td>
+                    <td><span class="badge red">High Sales + Poor Sentiment</span></td>
+                  </tr>
+                  <tr style="background:#fff8eb;">
+                    <td><strong>PROD_0005</strong></td>
+                    <td>PeakAthletics Smart Glide 854 Running Shoes</td>
+                    <td>Sports</td>
+                    <td>287</td>
+                    <td>$30,894.21</td>
+                    <td>3.13★</td>
+                    <td><strong style="color:var(--danger)">34.8%</strong></td>
+                    <td><span class="badge red">High Return Rate Alert (34.8%)</span></td>
+                  </tr>
+                  <tr style="background:#f4fff4;">
+                    <td><strong>PROD_0036</strong></td>
+                    <td>ApexTech Vanguard Flow 688 Smartphones</td>
+                    <td>Electronics</td>
+                    <td>11</td>
+                    <td>$3,972.58</td>
+                    <td>4.33★</td>
+                    <td><strong style="color:var(--success)">0.0%</strong></td>
+                    <td><span class="badge green">Low Sales + Stellar Sentiment (Hidden Gem)</span></td>
+                  </tr>
+                  <tr>
+                    <td>PROD_0008</td>
+                    <td>QuantumTech Classic Studio 661 Smart Monitors</td>
+                    <td>Electronics</td>
+                    <td>42</td>
+                    <td>$41,307.31</td>
+                    <td>2.50★</td>
+                    <td>3.3%</td>
+                    <td><span class="badge blue">Top Revenue Leader</span></td>
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -310,40 +350,40 @@
               <span class="visual-title">11-Aspect Sentiment Satisfaction Scores (-1.0 to +1.0)</span>
             </div>
             <div class="visual-body">
-              <div class="bar-row"><span class="bar-label">Camera</span><div class="bar-track"><div class="bar-fill green" style="width: 86%;"></div></div><span class="bar-val">+0.72</span></div>
-              <div class="bar-row"><span class="bar-label">Display</span><div class="bar-track"><div class="bar-fill green" style="width: 82%;"></div></div><span class="bar-val">+0.68</span></div>
-              <div class="bar-row"><span class="bar-label">Packaging</span><div class="bar-track"><div class="bar-fill green" style="width: 79%;"></div></div><span class="bar-val">+0.62</span></div>
-              <div class="bar-row"><span class="bar-label">Design</span><div class="bar-track"><div class="bar-fill green" style="width: 75%;"></div></div><span class="bar-val">+0.58</span></div>
-              <div class="bar-row"><span class="bar-label">Comfort</span><div class="bar-track"><div class="bar-fill green" style="width: 70%;"></div></div><span class="bar-val">+0.52</span></div>
-              <div class="bar-row"><span class="bar-label">Performance</span><div class="bar-track"><div class="bar-fill green" style="width: 68%;"></div></div><span class="bar-val">+0.49</span></div>
-              <div class="bar-row"><span class="bar-label">Quality</span><div class="bar-track"><div class="bar-fill green" style="width: 62%;"></div></div><span class="bar-val">+0.41</span></div>
-              <div class="bar-row"><span class="bar-label">Price</span><div class="bar-track"><div class="bar-fill gold" style="width: 52%;"></div></div><span class="bar-val">+0.26</span></div>
-              <div class="bar-row"><span class="bar-label">Delivery</span><div class="bar-track"><div class="bar-fill gold" style="width: 48%;"></div></div><span class="bar-val">+0.21</span></div>
-              <div class="bar-row"><span class="bar-label">Battery</span><div class="bar-track"><div class="bar-fill red" style="width: 25%;"></div></div><span class="bar-val">-0.18</span></div>
-              <div class="bar-row"><span class="bar-label">Durability</span><div class="bar-track"><div class="bar-fill red" style="width: 28%;"></div></div><span class="bar-val">-0.12</span></div>
+              <div class="bar-row"><span class="bar-label">Delivery (8)</span><div class="bar-track"><div class="bar-fill green" style="width: 82%;"></div></div><span class="bar-val">+0.41</span></div>
+              <div class="bar-row"><span class="bar-label">Comfort (19)</span><div class="bar-track"><div class="bar-fill green" style="width: 72%;"></div></div><span class="bar-val">+0.27</span></div>
+              <div class="bar-row"><span class="bar-label">Design (17)</span><div class="bar-track"><div class="bar-fill green" style="width: 68%;"></div></div><span class="bar-val">+0.24</span></div>
+              <div class="bar-row"><span class="bar-label">Display (24)</span><div class="bar-track"><div class="bar-fill green" style="width: 64%;"></div></div><span class="bar-val">+0.20</span></div>
+              <div class="bar-row"><span class="bar-label">Price (30)</span><div class="bar-track"><div class="bar-fill green" style="width: 58%;"></div></div><span class="bar-val">+0.14</span></div>
+              <div class="bar-row"><span class="bar-label">Camera (17)</span><div class="bar-track"><div class="bar-fill green" style="width: 54%;"></div></div><span class="bar-val">+0.11</span></div>
+              <div class="bar-row"><span class="bar-label">Packaging (14)</span><div class="bar-track"><div class="bar-fill green" style="width: 52%;"></div></div><span class="bar-val">+0.09</span></div>
+              <div class="bar-row"><span class="bar-label">Performance (48)</span><div class="bar-track"><div class="bar-fill gold" style="width: 48%;"></div></div><span class="bar-val">+0.07</span></div>
+              <div class="bar-row"><span class="bar-label">Battery (39)</span><div class="bar-track"><div class="bar-fill red" style="width: 32%;"></div></div><span class="bar-val">-0.03</span></div>
+              <div class="bar-row"><span class="bar-label">Quality (43)</span><div class="bar-track"><div class="bar-fill red" style="width: 30%;"></div></div><span class="bar-val">-0.04</span></div>
+              <div class="bar-row"><span class="bar-label">Durability (35)</span><div class="bar-track"><div class="bar-fill red" style="width: 24%;"></div></div><span class="bar-val">-0.10</span></div>
             </div>
           </div>
 
           <div class="visual-card">
             <div class="visual-header">
-              <span class="visual-title">NLP Topic Modeling (NMF Cluster Complaints)</span>
+              <span class="visual-title">NMF Unsupervised Topic Modeling (28,598 Real-World Reviews)</span>
             </div>
             <div class="visual-body">
               <table class="pbi-table">
                 <thead>
                   <tr>
-                    <th>Topic Theme</th>
+                    <th>Topic Name (Top Words)</th>
                     <th>Volume</th>
                     <th>% Share</th>
                     <th>Avg Rating</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr><td>Battery Life & Power Retention</td><td>9,196</td><td>61.3%</td><td>3.24★</td></tr>
-                  <tr><td>Shipping & Delivery Speed</td><td>2,353</td><td>15.7%</td><td>3.88★</td></tr>
-                  <tr><td>Pricing & Affordability</td><td>1,612</td><td>10.8%</td><td>3.06★</td></tr>
-                  <tr><td>Camera Clarity & Optics</td><td>1,134</td><td>7.6%</td><td>4.34★</td></tr>
-                  <tr><td>Build Quality & Craftsmanship</td><td>705</td><td>4.7%</td><td>4.35★</td></tr>
+                  <tr><td><strong>top, size, small</strong> (fit, ordered, large)</td><td>7,957</td><td>27.82%</td><td>3.70★</td></tr>
+                  <tr><td><strong>great, perfect, soft</strong> (sweater, jeans, comfortable)</td><td>7,667</td><td>26.81%</td><td>4.55★</td></tr>
+                  <tr><td><strong>good, product, quality</strong> (use, works, echo)</td><td>5,731</td><td>20.04%</td><td>3.43★</td></tr>
+                  <tr><td><strong>dress, beautiful, love dress</strong> (flattering, wear)</td><td>4,595</td><td>16.07%</td><td>4.19★</td></tr>
+                  <tr><td><strong>love, love love, love top</strong> (absolutely love)</td><td>2,648</td><td>9.26%</td><td>4.58★</td></tr>
                 </tbody>
               </table>
             </div>
@@ -356,13 +396,13 @@
         <div class="visuals-grid">
           <div class="visual-card full-width">
             <div class="visual-header">
-              <span class="visual-title">Offline Recommendation Evaluation Benchmark (Time-Aware Held-Out Test Set)</span>
+              <span class="visual-title">Offline Recommendation Evaluation Benchmark (79 Held-Out Customers, Cut-off: 2024-08-17)</span>
             </div>
             <div class="visual-body">
               <table class="pbi-table">
                 <thead>
                   <tr>
-                    <th>Recommendation Model</th>
+                    <th>Recommendation Strategy</th>
                     <th>Precision@5</th>
                     <th>Precision@10</th>
                     <th>Recall@5</th>
@@ -374,44 +414,44 @@
                 </thead>
                 <tbody>
                   <tr style="background:#eaf8ea; font-weight:600;">
-                    <td>✨ Hybrid Model (Collab + Content + Pop)</td>
-                    <td>0.0310</td>
-                    <td>0.0223</td>
-                    <td>0.0890</td>
-                    <td>0.1258</td>
-                    <td>0.0542</td>
-                    <td><strong>0.0825</strong></td>
-                    <td><span class="badge green">Production Best</span></td>
+                    <td>✨ Hybrid Model (0.45 Pop + 0.35 Collab + 0.20 Content)</td>
+                    <td>0.0785</td>
+                    <td>0.0532</td>
+                    <td>0.3165</td>
+                    <td>0.4156</td>
+                    <td>0.2296</td>
+                    <td><strong>0.2844</strong></td>
+                    <td><span class="badge green">Winning Model</span></td>
                   </tr>
                   <tr>
-                    <td>Popularity Baseline</td>
-                    <td>0.0712</td>
-                    <td>0.0522</td>
-                    <td>0.2140</td>
-                    <td>0.3161</td>
-                    <td>0.1420</td>
-                    <td>0.2024</td>
+                    <td>Popularity Baseline (Bayesian Smoothed)</td>
+                    <td>0.0734</td>
+                    <td>0.0544</td>
+                    <td>0.2954</td>
+                    <td>0.4177</td>
+                    <td>0.2220</td>
+                    <td>0.2784</td>
                     <td><span class="badge blue">Baseline Prior</span></td>
                   </tr>
                   <tr>
-                    <td>Collaborative Filtering (TruncatedSVD)</td>
-                    <td>0.0145</td>
-                    <td>0.0102</td>
-                    <td>0.0380</td>
-                    <td>0.0537</td>
-                    <td>0.0210</td>
-                    <td>0.0302</td>
-                    <td><span class="badge">Personalized</span></td>
+                    <td>Content-Based (TF-IDF Cosine Similarity)</td>
+                    <td>0.0203</td>
+                    <td>0.0228</td>
+                    <td>0.0802</td>
+                    <td>0.1793</td>
+                    <td>0.0695</td>
+                    <td>0.0999</td>
+                    <td><span class="badge">Catalog Similarity</span></td>
                   </tr>
                   <tr>
-                    <td>Content-Based (TF-IDF Cosine)</td>
-                    <td>0.0050</td>
-                    <td>0.0035</td>
-                    <td>0.0150</td>
-                    <td>0.0215</td>
-                    <td>0.0080</td>
-                    <td>0.0103</td>
-                    <td><span class="badge">Cold-Start Aid</span></td>
+                    <td>Collaborative Filtering (TruncatedSVD, k=25)</td>
+                    <td>0.0203</td>
+                    <td>0.0190</td>
+                    <td>0.0759</td>
+                    <td>0.1456</td>
+                    <td>0.0517</td>
+                    <td>0.0778</td>
+                    <td><span class="badge">Latent Factors</span></td>
                   </tr>
                 </tbody>
               </table>
@@ -426,28 +466,28 @@
           <div class="visual-card">
             <div class="visual-header"><span class="visual-title">Customer 360 Profile (Selected: CUST_00001)</span></div>
             <div class="visual-body" style="font-size:13px; line-height:1.8;">
-              <div><strong>Name:</strong> CUST_00001 (Gold Member)</div>
-              <div><strong>Segment:</strong> High Value / Champions (RFM: 555)</div>
-              <div><strong>Location:</strong> Austin, United States</div>
-              <div><strong>Total Net Spend:</strong> $2,490.50 (11 Completed Orders)</div>
-              <div><strong>Preferred Category:</strong> Electronics</div>
-              <div><strong>Return Rate:</strong> 0.0% (0 Returns)</div>
+              <div><strong>Customer ID:</strong> CUST_00001 (Bronze Member • Male, Age 40)</div>
+              <div><strong>Behavioral Segment:</strong> Occasional • RFM Cluster: <strong>Loyal Customers (RFM: 533)</strong></div>
+              <div><strong>Location:</strong> London, United Kingdom</div>
+              <div><strong>Total Net Spend:</strong> $847.00 (5 Orders • 7 Units Purchased • AOV: $169.40)</div>
+              <div><strong>Preferred Category:</strong> Books (Recency: 9 days since last order)</div>
+              <div><strong>Return Rate:</strong> 0.0% (0 Returned Orders)</div>
             </div>
           </div>
           <div class="visual-card">
             <div class="visual-header"><span class="visual-title">Personalized Hybrid Recommendations for CUST_00001</span></div>
             <div class="visual-body">
               <div style="margin-bottom:10px; padding:8px; background:#f9f9f9; border-left:3px solid var(--accent);">
-                <strong>ApexTech UltraEdge 850 Power Bank</strong> — $79.99<br>
-                <span style="font-size:11px; color:#605e5c;">Reason: Customers with similar shopping behavior in Electronics also purchased this</span>
+                <strong>PeakAthletics Smart Glide 854 Running Shoes (PROD_0005)</strong> — $138.54<br>
+                <span style="font-size:11px; color:#605e5c;">Reason: Top-rated best-seller in Sports with verified customer activity</span>
               </div>
               <div style="margin-bottom:10px; padding:8px; background:#f9f9f9; border-left:3px solid var(--accent);">
-                <strong>QuantumTech Sense 410 Smart Monitor</strong> — $499.00<br>
-                <span style="font-size:11px; color:#605e5c;">Reason: Matches your affinity for Electronics display technology</span>
+                <strong>VoltPro Vanguard Glide 113 Tablets (PROD_0001)</strong> — $145.32<br>
+                <span style="font-size:11px; color:#605e5c;">Reason: Customers with similar shopping and browsing behavior frequently chose this</span>
               </div>
               <div style="padding:8px; background:#f9f9f9; border-left:3px solid var(--accent);">
-                <strong>AuraFit ProSense 210 Smartwatch</strong> — $189.99<br>
-                <span style="font-size:11px; color:#605e5c;">Reason: Top-rated companion device frequently bought with your past purchases</span>
+                <strong>ChefCraft Eco Prime 408 Chef Knives (PROD_0003)</strong> — $256.55<br>
+                <span style="font-size:11px; color:#605e5c;">Reason: Matches your affinity based on your interaction history</span>
               </div>
             </div>
           </div>
@@ -468,6 +508,26 @@
   </div>
 
   <script>
+    const CATEGORY_DATA = {
+      "ALL": { netRev: "$215,812.09", grossRev: "$246,109.47", orders: "1,000", aov: "$249.49", ret: "13.5%", rating: "3.03★" },
+      "Electronics": { netRev: "$106,892.40", grossRev: "$113,374.96", orders: "195", aov: "$580.94", ret: "5.6%", rating: "3.03★" },
+      "Sports": { netRev: "$42,580.12", grossRev: "$60,217.93", orders: "280", aov: "$215.05", ret: "29.3%", rating: "2.98★" },
+      "Home & Kitchen": { netRev: "$35,765.10", grossRev: "$38,930.20", orders: "123", aov: "$316.51", ret: "8.1%", rating: "3.07★" },
+      "Clothing": { netRev: "$13,077.32", grossRev: "$14,826.89", orders: "136", aov: "$108.98", ret: "11.8%", rating: "3.11★" },
+      "Accessories": { netRev: "$8,810.00", grossRev: "$9,254.18", orders: "83", aov: "$111.52", ret: "4.8%", rating: "3.09★" },
+      "Beauty": { netRev: "$5,142.02", grossRev: "$5,499.49", orders: "92", aov: "$59.79", ret: "6.5%", rating: "2.87★" },
+      "Books": { netRev: "$3,741.44", grossRev: "$4,005.82", orders: "91", aov: "$44.01", ret: "6.6%", rating: "3.05★" }
+    };
+
+    const SEGMENT_DATA = {
+      "Regular": { netRev: "$67,405.60", orders: "302", aov: "$230.70", ret: "19.0%" },
+      "Occasional": { netRev: "$62,106.28", orders: "307", aov: "$206.72", ret: "11.7%" },
+      "Discount Sensitive": { netRev: "$36,513.35", orders: "159", aov: "$214.01", ret: "11.1%" },
+      "High Value": { netRev: "$28,795.29", orders: "115", aov: "$222.89", ret: "8.5%" },
+      "At Risk": { netRev: "$12,882.38", orders: "67", aov: "$184.72", ret: "17.7%" },
+      "New Customer": { netRev: "$8,109.19", orders: "50", aov: "$144.36", ret: "12.0%" }
+    };
+
     function switchTab(pageIdx) {
       document.querySelectorAll('.tab-btn').forEach((btn, i) => {
         btn.classList.toggle('active', i === (pageIdx - 1));
@@ -480,15 +540,46 @@
     function applyFilters() {
       const cat = document.getElementById('slicerCategory').value;
       const seg = document.getElementById('slicerSegment').value;
+      const yr = document.getElementById('slicerYear').value;
 
-      if (cat !== 'ALL') {
-        document.getElementById('kpiNetRev').innerText = '$1,420,000';
-        document.getElementById('kpiOrders').innerText = '11,420';
-        document.getElementById('kpiAov').innerText = '$124.34';
+      if (cat !== 'ALL' && CATEGORY_DATA[cat]) {
+        const d = CATEGORY_DATA[cat];
+        document.getElementById('kpiNetRev').innerText = d.netRev;
+        document.getElementById('kpiOrders').innerText = d.orders;
+        document.getElementById('kpiGrossSub').innerText = 'Gross Revenue: ' + d.grossRev;
+        document.getElementById('kpiAov').innerText = d.aov;
+        document.getElementById('kpiReturn').innerText = d.ret;
+        document.getElementById('kpiRating').innerText = d.rating;
+      } else if (seg !== 'ALL' && SEGMENT_DATA[seg]) {
+        const s = SEGMENT_DATA[seg];
+        document.getElementById('kpiNetRev').innerText = s.netRev;
+        document.getElementById('kpiOrders').innerText = s.orders;
+        document.getElementById('kpiGrossSub').innerText = 'Segment: ' + seg;
+        document.getElementById('kpiAov').innerText = s.aov;
+        document.getElementById('kpiReturn').innerText = s.ret;
+        document.getElementById('kpiRating').innerText = '3.03★';
+      } else if (yr === '2024') {
+        document.getElementById('kpiNetRev').innerText = '$112,480.60';
+        document.getElementById('kpiOrders').innerText = '514';
+        document.getElementById('kpiGrossSub').innerText = 'Year: 2024';
+        document.getElementById('kpiAov').innerText = '$252.20';
+        document.getElementById('kpiReturn').innerText = '13.2%';
+        document.getElementById('kpiRating').innerText = '3.05★';
+      } else if (yr === '2023') {
+        document.getElementById('kpiNetRev').innerText = '$103,331.49';
+        document.getElementById('kpiOrders').innerText = '486';
+        document.getElementById('kpiGrossSub').innerText = 'Year: 2023';
+        document.getElementById('kpiAov').innerText = '$246.61';
+        document.getElementById('kpiReturn').innerText = '13.8%';
+        document.getElementById('kpiRating').innerText = '3.01★';
       } else {
-        document.getElementById('kpiNetRev').innerText = '$4,862,410';
-        document.getElementById('kpiOrders').innerText = '40,000';
-        document.getElementById('kpiAov').innerText = '$121.56';
+        const d = CATEGORY_DATA["ALL"];
+        document.getElementById('kpiNetRev').innerText = d.netRev;
+        document.getElementById('kpiOrders').innerText = d.orders;
+        document.getElementById('kpiGrossSub').innerText = 'Gross Revenue: ' + d.grossRev;
+        document.getElementById('kpiAov').innerText = d.aov;
+        document.getElementById('kpiReturn').innerText = d.ret;
+        document.getElementById('kpiRating').innerText = d.rating;
       }
     }
   </script>

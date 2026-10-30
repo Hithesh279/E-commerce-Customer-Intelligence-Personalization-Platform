@@ -1,13 +1,14 @@
 """
 app/pages/custom_data_analyzer.py
 User Data Upload & Auto-Generated Interactive Dashboard.
-Supports CSV/Excel uploads, 6 pre-built enterprise business templates,
+Supports CSV/Excel/ZIP uploads, local folder scanning, 12 pre-built enterprise business templates,
 automated schema inference, NLP batch sentiment, RFM customer profiling, and enriched exports.
 """
 from datetime import datetime
 import io
 import sys
 from pathlib import Path
+from typing import Dict
 
 # Ensure project root is in sys.path
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
@@ -26,7 +27,7 @@ st.set_page_config(
     layout="wide",
 )
 
-from app.components.cards import render_metric_card
+from app.components.cards import render_metric_card, render_quote
 from app.components.charts import (
     plot_aspect_radar,
     plot_category_sales,
@@ -45,6 +46,7 @@ from src.analytics.auto_analyzer import (
     detect_schema,
     profile_generic_table,
 )
+from src.utils.formatting import fmt_money, fmt_num, fmt_pct, fmt_signed
 from src.analytics.templates import (
     generate_blank_template_csv,
     get_available_templates,
@@ -78,9 +80,11 @@ def render_custom_analyzer_page():
         auto_join_relational_tables,
         check_schema_compatibility,
         combine_homogeneous_tables,
-        load_zip_archive,
-        read_tabular_file,
-        scan_local_directory,
+        compute_bytes_hash,
+        compute_directory_signature,
+        load_zip_archive_cached,
+        parse_tabular_file_cached,
+        scan_local_directory_cached,
     )
 
     # Ingestion Source Selector
@@ -165,8 +169,24 @@ def render_custom_analyzer_page():
         )
         if uploaded_file is not None:
             try:
-                active_df = read_tabular_file(uploaded_file, uploaded_file.name)
-                data_source_label = f"Uploaded File: {uploaded_file.name}"
+                content = uploaded_file.getvalue()
+                f_size = len(content)
+                f_name = uploaded_file.name
+                file_id = getattr(uploaded_file, "file_id", f"{f_name}_{f_size}")
+                cached_hash_key = f"_fhash_{file_id}"
+                if cached_hash_key in st.session_state:
+                    f_hash = st.session_state[cached_hash_key]
+                else:
+                    f_hash = compute_bytes_hash(content)
+                    st.session_state[cached_hash_key] = f_hash
+
+                active_df = parse_tabular_file_cached(
+                    _file_bytes=content,
+                    filename=f_name,
+                    file_size=f_size,
+                    file_hash=f_hash,
+                )
+                data_source_label = f"Uploaded File: {f_name}"
             except Exception as e:
                 st.error(f"Error loading uploaded file: {e}")
                 return
@@ -194,18 +214,39 @@ def render_custom_analyzer_page():
         loaded_tables: Dict[str, pd.DataFrame] = {}
         if uploaded_files:
             for uf in uploaded_files:
-                if uf.name.lower().endswith(".zip"):
+                content = uf.getvalue()
+                f_size = len(content)
+                f_name = uf.name
+                file_id = getattr(uf, "file_id", f"{f_name}_{f_size}")
+                cached_hash_key = f"_fhash_{file_id}"
+                if cached_hash_key in st.session_state:
+                    f_hash = st.session_state[cached_hash_key]
+                else:
+                    f_hash = compute_bytes_hash(content)
+                    st.session_state[cached_hash_key] = f_hash
+
+                if f_name.lower().endswith(".zip"):
                     try:
-                        extracted = load_zip_archive(uf.getvalue())
+                        extracted = load_zip_archive_cached(
+                            _zip_bytes=content,
+                            filename=f_name,
+                            file_size=f_size,
+                            file_hash=f_hash,
+                        )
                         loaded_tables.update(extracted)
                     except Exception as e:
-                        st.error(f"Error reading ZIP archive {uf.name}: {e}")
+                        st.error(f"Error reading ZIP archive {f_name}: {e}")
                 else:
                     try:
-                        df_single = read_tabular_file(uf, uf.name)
-                        loaded_tables[uf.name] = df_single
+                        df_single = parse_tabular_file_cached(
+                            _file_bytes=content,
+                            filename=f_name,
+                            file_size=f_size,
+                            file_hash=f_hash,
+                        )
+                        loaded_tables[f_name] = df_single
                     except Exception as e:
-                        st.error(f"Error reading file {uf.name}: {e}")
+                        st.error(f"Error reading file {f_name}: {e}")
 
         if loaded_tables:
             st.success(f"Successfully loaded {len(loaded_tables)} dataset(s): {', '.join(loaded_tables.keys())}")
@@ -251,7 +292,7 @@ def render_custom_analyzer_page():
             <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin-bottom: 14px;">
                 <strong style="color: #1e293b; font-size: 0.95rem;">Scan & Ingest from Local Machine Folder:</strong>
                 <p style="font-size: 0.85rem; color: #64748b; margin: 4px 0 0 0;">
-                    Specify any folder directory path on your system. The engine will scan all sub-files, import all CSV/Excel tables, and let you analyze them together.
+                    Enter a folder inside the project data directory (or a folder listed in the LOCAL_SCAN_ROOTS environment variable). All CSV and Excel files in it are imported.
                 </p>
             </div>
             """,
@@ -262,7 +303,7 @@ def render_custom_analyzer_page():
             local_path_input = st.text_input(
                 "Local Directory Path:",
                 value="data/raw",
-                help="Enter an absolute or relative folder path containing CSV/Excel datasets.",
+                help="Relative paths resolve against the project root. Folders outside the allowed locations are refused.",
             )
         with c_p2:
             st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
@@ -274,7 +315,8 @@ def render_custom_analyzer_page():
 
             target_path = st.session_state.get("scanned_local_path", local_path_input)
             try:
-                scanned_tables = scan_local_directory(target_path)
+                dir_sig = compute_directory_signature(target_path)
+                scanned_tables = scan_local_directory_cached(str(target_path), dir_sig)
                 if not scanned_tables:
                     st.warning(f"No CSV or Excel files found in directory: `{target_path}`")
                 else:
@@ -386,6 +428,20 @@ def render_custom_analyzer_page():
         category_col = None if sel_cat == "None" else sel_cat
         status_col = None if sel_status == "None" else sel_status
 
+        # Synchronize overrides back to schema_info mappings dictionary
+        mappings.update({
+            "text_col": text_col,
+            "sentiment_col": sentiment_col,
+            "rating_col": rating_col,
+            "date_col": date_col,
+            "revenue_col": revenue_col,
+            "customer_col": customer_col,
+            "product_col": product_col,
+            "category_col": category_col,
+            "status_col": status_col,
+        })
+        schema_info["mappings"] = mappings
+
     # Data Processing with Intelligent In-Memory Caching
     analysis_sig = (
         data_source_label,
@@ -465,41 +521,50 @@ def render_custom_analyzer_page():
                 rfm_metrics=rfm_metrics,
                 table_profile=table_profile,
                 enriched_df=enriched_df,
+                analysis_sig=analysis_sig,
             )
             st.session_state["_analyzer_cache_sig"] = analysis_sig
 
-    from app.services.active_dataset_manager import generate_active_dashboard_reports
-    rep_suite = generate_active_dashboard_reports()
-
-    # 4 Dynamic Dashboard Tabs & Top-level Quick Report Download
+    # 4 Dynamic Dashboard Sections & Top-level Quick Report Download
     st.markdown("---")
     st.success(f"🌐 **Active Platform Dataset Synchronized:** All pages (**Main**, **Overview**, **Customer Intelligence**, **Product Intelligence**, **NLP Insights**, **Recommendations**) are now displaying this dataset!")
-    header_col, dl_col = st.columns([3, 2])
-    with header_col:
-        st.markdown(f"### 📈 Interactive Auto-Dashboard: {data_source_label}")
-    with dl_col:
-        st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
-        st.download_button(
-            label="📄 1-Click Download Executive Report (HTML / PDF)",
-            data=rep_suite["html_report"].encode("utf-8"),
-            file_name=rep_suite["html_filename"],
-            mime="text/html",
-            type="primary",
-            width="stretch",
-            help="Download printable executive report. Open in any browser and press Ctrl+P to save as PDF.",
-        )
+    st.markdown(f"### 📈 Interactive Auto-Dashboard: {data_source_label}")
 
-    tab1, tab2, tab3, tab4 = st.tabs([
+    # pyrefly: ignore [missing-import]
+    from app.services.active_dataset_manager import render_download_panel
+    with st.expander("📥 1-Click Download Generated Dashboard & Reports", expanded=True):
+        render_download_panel(key_prefix="top_auto_dl", show_header=False)
+
+    section_options = [
         "📈 Executive KPIs & Trends",
         "🧠 NLP & Aspect Intelligence",
         "👥 Customer Behavioral & RFM",
         "📁 Data Explorer & Download Reports",
-    ])
+    ]
+    if hasattr(st, "segmented_control"):
+        active_section = st.segmented_control(
+            "Dashboard View",
+            section_options,
+            default=section_options[0],
+            key="custom_dashboard_active_tab",
+            label_visibility="collapsed",
+        )
+    else:
+        active_section = st.radio(
+            "Dashboard View",
+            section_options,
+            index=0,
+            horizontal=True,
+            key="custom_dashboard_active_tab",
+            label_visibility="collapsed",
+        )
+    if not active_section:
+        active_section = section_options[0]
 
     # ==========================================
-    # TAB 1: EXECUTIVE KPIS & TRENDS
+    # SECTION 1: EXECUTIVE KPIS & TRENDS
     # ==========================================
-    with tab1:
+    if active_section.startswith("📈"):
         st.markdown("#### 🏆 High-Level Business Performance Scorecards")
         kpi_c1, kpi_c2, kpi_c3, kpi_c4, kpi_c5 = st.columns(5)
 
@@ -507,7 +572,7 @@ def render_custom_analyzer_page():
             with kpi_c1:
                 render_metric_card(
                     title="Total Revenue",
-                    value=f"${txn_data['total_revenue']:,.2f}",
+                    value=fmt_money(txn_data['total_revenue']),
                     delta="Cumulative Spend",
                     delta_positive=True,
                     card_type="success",
@@ -515,31 +580,31 @@ def render_custom_analyzer_page():
             with kpi_c2:
                 render_metric_card(
                     title="Total Orders",
-                    value=f"{txn_data['total_orders']:,}",
+                    value=fmt_num(txn_data['total_orders']),
                     delta="Completed Records",
                     card_type="default",
                 )
             with kpi_c3:
                 render_metric_card(
                     title="Average Order Value",
-                    value=f"${txn_data['aov']:.2f}",
+                    value=fmt_money(txn_data['aov']),
                     delta="Per Transaction",
                     card_type="default",
                 )
             with kpi_c4:
                 render_metric_card(
                     title="Unique Customers",
-                    value=f"{txn_data['unique_customers']:,}",
+                    value=fmt_num(txn_data['unique_customers']),
                     delta="Active Buyers",
                     card_type="default",
                 )
             with kpi_c5:
                 render_metric_card(
                     title="Return / Churn Rate",
-                    value=f"{txn_data['return_rate']:.1f}%",
+                    value=fmt_pct(txn_data['return_rate']),
                     delta="Exception Rate",
-                    delta_positive=txn_data['return_rate'] < 10.0,
-                    card_type="warning" if txn_data['return_rate'] >= 10.0 else "success",
+                    delta_positive=(txn_data['return_rate'] is None or txn_data['return_rate'] < 10.0),
+                    card_type="warning" if (txn_data['return_rate'] or 0) >= 10.0 else "success",
                 )
         elif reviews_data is not None:
             with kpi_c1:
@@ -552,26 +617,26 @@ def render_custom_analyzer_page():
             with kpi_c2:
                 render_metric_card(
                     title="Positive Sentiment",
-                    value=f"{reviews_data['positive_pct']:.1f}%",
+                    value=fmt_pct(reviews_data['positive_pct']),
                     delta="Brand Advocates",
-                    delta_positive=reviews_data['positive_pct'] > 50,
+                    delta_positive=(reviews_data['positive_pct'] or 0) > 50,
                     card_type="success",
                 )
             with kpi_c3:
                 render_metric_card(
                     title="Negative Sentiment",
-                    value=f"{reviews_data['negative_pct']:.1f}%",
+                    value=fmt_pct(reviews_data['negative_pct']),
                     delta="Dissatisfied",
-                    delta_positive=reviews_data['negative_pct'] < 20,
-                    card_type="danger" if reviews_data['negative_pct'] > 25 else "warning",
+                    delta_positive=(reviews_data['negative_pct'] or 0) < 20,
+                    card_type="danger" if (reviews_data['negative_pct'] or 0) > 25 else "warning",
                 )
             with kpi_c4:
                 render_metric_card(
                     title="Polarity Index",
-                    value=f"{reviews_data['avg_polarity']:+.2f}",
+                    value=fmt_signed(reviews_data['avg_polarity']),
                     delta="Scale: -1.0 to +1.0",
-                    delta_positive=reviews_data['avg_polarity'] > 0,
-                    card_type="success" if reviews_data['avg_polarity'] > 0 else "danger",
+                    delta_positive=(reviews_data['avg_polarity'] or 0) > 0,
+                    card_type="success" if (reviews_data['avg_polarity'] or 0) > 0 else "danger",
                 )
             with kpi_c5:
                 aspect_cnt = len(reviews_data['aspect_summary']) if not reviews_data['aspect_summary'].empty else 0
@@ -647,9 +712,9 @@ def render_custom_analyzer_page():
             st.dataframe(txn_data["top_products_df"], width="stretch", hide_index=True)
 
     # ==========================================
-    # TAB 2: NLP & ASPECT INTELLIGENCE
+    # SECTION 2: NLP & ASPECT INTELLIGENCE
     # ==========================================
-    with tab2:
+    elif active_section.startswith("🧠"):
         if reviews_data is not None:
             st.markdown("#### 🧠 Natural Language Sentiment & 11-Aspect Extraction")
             st.caption("Batch ML classification evaluating sentiment polarities and extracting hardware/feature satisfaction drivers.")
@@ -695,19 +760,19 @@ def render_custom_analyzer_page():
             with q_col1:
                 st.markdown("**🟢 Positive Customer Quotes:**")
                 for q in reviews_data["positive_quotes"]:
-                    st.markdown(f"> *\"{q}\"*")
+                    render_quote(q, tone="positive")
             with q_col2:
                 st.markdown("**🔴 Negative Customer Quotes (Areas for Improvement):**")
                 for q in reviews_data["negative_quotes"]:
-                    st.markdown(f"> *\"{q}\"*")
+                    render_quote(q, tone="negative")
 
         else:
             st.info("💡 To view NLP & Aspect Intelligence, select or map a text column in the mapping expander above.")
 
     # ==========================================
-    # TAB 3: CUSTOMER BEHAVIORAL & RFM
+    # SECTION 3: CUSTOMER BEHAVIORAL & RFM
     # ==========================================
-    with tab3:
+    elif active_section.startswith("👥"):
         if rfm_df is not None and rfm_metrics is not None:
             st.markdown("#### 👥 Customer Behavioral RFM Segmentation")
             st.caption("Quantile-based Recency, Frequency, and Monetary scoring segmenting customers into actionable behavioral clusters.")
@@ -716,11 +781,11 @@ def render_custom_analyzer_page():
             with rfm_c1:
                 render_metric_card("Total Customers", f"{rfm_metrics['total_customers']:,}", card_type="default")
             with rfm_c2:
-                render_metric_card("Champions Count", f"{rfm_metrics['champions_count']:,}", card_type="success")
+                render_metric_card("Champions Count", fmt_num(rfm_metrics['champions_count']), delta=None if rfm_metrics.get('recency_available') else "Needs dates for recency", card_type="success")
             with rfm_c3:
-                render_metric_card("At-Risk Count", f"{rfm_metrics['at_risk_count']:,}", card_type="danger")
+                render_metric_card("At-Risk Count", fmt_num(rfm_metrics['at_risk_count']), delta=None if rfm_metrics.get('recency_available') else "Needs dates for recency", card_type="danger")
             with rfm_c4:
-                render_metric_card("Avg Customer Spend", f"${rfm_metrics['avg_monetary']:,.2f}", card_type="default")
+                render_metric_card("Avg Customer Spend", fmt_money(rfm_metrics['avg_monetary']), card_type="default")
 
             rfm_v1, rfm_v2 = st.columns(2)
             with rfm_v1:
@@ -744,9 +809,9 @@ def render_custom_analyzer_page():
             st.info("💡 To view RFM Segmentation, map a **Customer ID** column along with a **Date** and **Revenue** column above.")
 
     # ==========================================
-    # TAB 4: DATA EXPLORER & ENRICHED EXPORT
+    # SECTION 4: DATA EXPLORER & ENRICHED EXPORT
     # ==========================================
-    with tab4:
+    elif active_section.startswith("📁"):
         st.markdown("#### 📁 Interactive Data Explorer & Statistical Profiling")
 
         # Correlation Heatmap
@@ -768,55 +833,8 @@ def render_custom_analyzer_page():
 
         # Report and Dataset Download Suite
         st.markdown("---")
-        st.markdown("### 📥 Download Generated Executive Reports & Datasets")
-        st.caption("Download self-contained briefing documents, multi-tab analytical Excel workbooks, or raw enriched data:")
-
-        rep_col1, rep_col2, rep_col3, rep_col4 = st.columns(4)
-
-        with rep_col1:
-            st.download_button(
-                label="📄 Executive Report (HTML / PDF)",
-                data=rep_suite["html_report"].encode("utf-8"),
-                file_name=rep_suite["html_filename"],
-                mime="text/html",
-                type="primary",
-                help="Download styled briefing report. Open in any browser and press Ctrl+P to save as PDF.",
-                width="stretch",
-            )
-            st.caption("🖨️ *Printable: Ctrl+P to save as PDF.*")
-
-        with rep_col2:
-            st.download_button(
-                label="📊 Analytical Workbook (Excel)",
-                data=rep_suite["excel_bytes"],
-                file_name=rep_suite["excel_filename"],
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                help="Multi-tab Excel workbook with Executive Summary, Enriched Data, Trends, Aspects, and RFM tabs.",
-                width="stretch",
-            )
-            st.caption("📑 *5 tabs including Star-Schema summaries.*")
-
-        with rep_col3:
-            st.download_button(
-                label="📝 Briefing Summary (Markdown)",
-                data=rep_suite["md_report"].encode("utf-8"),
-                file_name=rep_suite["md_filename"],
-                mime="text/markdown",
-                help="Structured Markdown briefing document with formatted KPI tables.",
-                width="stretch",
-            )
-            st.caption("📝 *GitHub-flavored Markdown format.*")
-
-        with rep_col4:
-            st.download_button(
-                label="📁 Enriched Raw Data (CSV)",
-                data=rep_suite["csv_bytes"],
-                file_name=rep_suite["csv_filename"],
-                mime="text/csv",
-                help="Complete dataset enriched with ML predictions and extracted aspect tags.",
-                width="stretch",
-            )
-            st.caption("💾 *Full dataset with predicted tags.*")
+        from app.services.active_dataset_manager import render_download_panel
+        render_download_panel(key_prefix="tab4_auto_dl", show_header=True)
 
 
 render_custom_analyzer_page()

@@ -3,10 +3,10 @@ src/nlp/aspect_extraction.py
 Aspect-Based Sentiment Analysis (ABSA).
 Extracts fine-grained sentiment across 11 key product aspects:
 (battery, camera, display, performance, quality, price, comfort, durability, delivery, packaging, design).
+Includes pre-compiled regex matching and local negation-window polarity inversion.
 """
 import re
 from typing import Any, Dict, List, Tuple
-import numpy as np
 import pandas as pd
 
 from src.utils.config import ASPECT_LIST, PROCESSED_DATA_DIR, ensure_directories
@@ -36,16 +36,49 @@ POSITIVE_CLUES = {
     "value", "affordable", "worth", "comfortable", "soothing", "durable", "rugged", "prompt",
     "transparent", "secure", "eco-friendly", "elegant", "sleek", "modern", "appealing", "good",
     "love", "best", "perfect", "fantastic", "smooth", "high", "lasts", "lasting", "reliable",
-    "impressive", "easy", "pleased", "delighted", "recommend", "bright", "sharp"
+    "impressive", "easy", "pleased", "delighted", "recommend", "bright", "sharp", "crisp",
 }
 
 NEGATIVE_CLUES = {
     "terrible", "draining", "dies", "sluggishly", "blurry", "disappointing", "noisy", "subpar",
     "dim", "glare", "washed", "dull", "sluggish", "stutter", "lag", "slow", "cheap", "flimsy",
     "poor", "fragile", "overpriced", "expensive", "awkward", "soreness", "discomfort", "uncomfortable",
-    "lacks", "fractured", "broke", "delays", "late", "damaged", "dented", "clunky", "outdated",
-    "bad", "worst", "hate", "awful", "horrible", "defect", "useless"
+    "lacks", "fractured", "broke", "broken", "delays", "delayed", "late", "damaged", "dented",
+    "clunky", "outdated", "bad", "worst", "hate", "awful", "horrible", "defect", "defective", "useless",
 }
+
+NEGATION_WORDS = {
+    "not", "no", "never", "neither", "barely", "hardly", "without",
+    "dont", "doesnt", "didnt", "isnt", "wasnt", "werent", "wont", "cant", "cannot",
+}
+
+# Pre-compiled regular expressions for high-speed extraction
+_CLAUSE_SPLIT_REGEX = re.compile(r"[.!?,;]+|\bbut\b|\bhowever\b|\balso\b|\band\b|\bthough\b|\balthough\b", flags=re.IGNORECASE)
+_WORD_TOKEN_REGEX = re.compile(r"[a-z]+(?:-[a-z]+)*")
+_COMPILED_ASPECT_PATTERNS: Dict[str, re.Pattern] = {
+    aspect: re.compile(r"\b(?:" + "|".join(re.escape(kw) for kw in keywords) + r")\b", flags=re.IGNORECASE)
+    for aspect, keywords in ASPECT_LEXICON.items()
+}
+
+
+def _score_clause_tokens(tokens: List[str]) -> Tuple[int, int]:
+    """Count positive and negative clue hits in a clause with 2-token negation-window inversion."""
+    pos_hits = 0
+    neg_hits = 0
+    for idx, token in enumerate(tokens):
+        window_start = max(0, idx - 2)
+        is_negated = any(prev in NEGATION_WORDS or prev.endswith("n't") for prev in tokens[window_start:idx])
+        if token in POSITIVE_CLUES:
+            if is_negated:
+                neg_hits += 1
+            else:
+                pos_hits += 1
+        elif token in NEGATIVE_CLUES:
+            if is_negated:
+                pos_hits += 1
+            else:
+                neg_hits += 1
+    return pos_hits, neg_hits
 
 
 def extract_aspect_sentiment_from_text(text: str) -> List[Dict[str, Any]]:
@@ -65,8 +98,7 @@ def extract_aspect_sentiment_from_text(text: str) -> List[Dict[str, Any]]:
     if not isinstance(text, str) or not text.strip():
         return []
 
-    # Split text into clauses/sentences
-    clauses = re.split(r"[.!?,;]+|\bbut\b|\bhowever\b|\balso\b|\band\b", text, flags=re.IGNORECASE)
+    clauses = _CLAUSE_SPLIT_REGEX.split(text)
     results = []
     found_aspects = set()
 
@@ -75,19 +107,17 @@ def extract_aspect_sentiment_from_text(text: str) -> List[Dict[str, Any]]:
         if not clause_clean:
             continue
 
-        clause_words = set(re.findall(r"\b\w+\b", clause_clean))
+        clause_tokens = _WORD_TOKEN_REGEX.findall(clause_clean)
+        if not clause_tokens:
+            continue
 
-        for aspect, keywords in ASPECT_LEXICON.items():
+        pos_hits, neg_hits = _score_clause_tokens(clause_tokens)
+
+        for aspect, pattern in _COMPILED_ASPECT_PATTERNS.items():
             if aspect in found_aspects:
                 continue
 
-            # Check if any keyword matches
-            matches = any(re.search(r"\b" + re.escape(kw) + r"\b", clause_clean) for kw in keywords)
-            if matches:
-                # Score local clause
-                pos_hits = len(clause_words.intersection(POSITIVE_CLUES))
-                neg_hits = len(clause_words.intersection(NEGATIVE_CLUES))
-
+            if pattern.search(clause_clean):
                 if pos_hits > neg_hits:
                     sentiment = "Positive"
                     score = min(1.0, 0.4 + 0.25 * (pos_hits - neg_hits))

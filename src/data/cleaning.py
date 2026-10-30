@@ -21,16 +21,19 @@ def clean_customers(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Any]]:
 
     initial_count = len(cleaned)
     cleaned = cleaned.drop_duplicates(subset=["customer_id"]).reset_index(drop=True)
-    report["duplicates_removed"] = initial_count - len(cleaned)
+    report["duplicates_removed"] = int(initial_count - len(cleaned))
 
-    # Missing age imputation using segment median
+    # Missing age imputation using segment median (skipping segments with no non-null values)
     missing_age = cleaned["age"].isnull().sum()
     if missing_age > 0:
         cleaned["age"] = cleaned.groupby("customer_segment")["age"].transform(
-            lambda s: s.fillna(s.median())
+            lambda s: s.fillna(s.dropna().median()) if s.notna().any() else s
         )
         # Fallback if any segment was entirely null
-        cleaned["age"] = cleaned["age"].fillna(cleaned["age"].median()).astype(int)
+        fallback_median = cleaned["age"].dropna().median() if cleaned["age"].notna().any() else 35
+        cleaned["age"] = cleaned["age"].fillna(fallback_median).astype(int)
+    else:
+        cleaned["age"] = cleaned["age"].astype(int)
     report["missing_age_imputed"] = int(missing_age)
 
     # Standardize string fields
@@ -49,7 +52,7 @@ def clean_products(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Any]]:
 
     initial_count = len(cleaned)
     cleaned = cleaned.drop_duplicates(subset=["product_id"]).reset_index(drop=True)
-    report["duplicates_removed"] = initial_count - len(cleaned)
+    report["duplicates_removed"] = int(initial_count - len(cleaned))
 
     # Standardize category and subcategory casings
     category_map = {
@@ -68,7 +71,7 @@ def clean_products(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     # Price validation: price must be positive
     invalid_prices = (cleaned["price"] <= 0).sum()
     if invalid_prices > 0:
-        cleaned = cleaned[cleaned["price"] > 0]
+        cleaned = cleaned[cleaned["price"] > 0].reset_index(drop=True)
     report["invalid_prices_filtered"] = int(invalid_prices)
 
     logger.info(f"Cleaned products: {len(cleaned)} rows. Report: {report}")
@@ -82,7 +85,7 @@ def clean_transactions(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Any]]:
 
     initial_count = len(cleaned)
     cleaned = cleaned.drop_duplicates(subset=["transaction_id"]).reset_index(drop=True)
-    report["duplicates_removed"] = initial_count - len(cleaned)
+    report["duplicates_removed"] = int(initial_count - len(cleaned))
 
     # Enforce arithmetic consistency: total = (quantity * unit_price) - discount_amount
     expected_discount = (cleaned["quantity"] * cleaned["unit_price"] * (cleaned["discount_percentage"] / 100.0)).round(2)
@@ -110,7 +113,8 @@ def clean_reviews(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Any]]:
 
     initial_count = len(cleaned)
     cleaned = cleaned.drop_duplicates(subset=["review_id"]).reset_index(drop=True)
-    report["duplicates_removed"] = initial_count - len(cleaned)
+    post_dedup_count = len(cleaned)
+    report["duplicates_removed"] = int(initial_count - post_dedup_count)
 
     # Validate rating range
     cleaned["rating"] = cleaned["rating"].clip(1, 5).astype(int)
@@ -118,7 +122,7 @@ def clean_reviews(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     # Clean text whitespace
     cleaned["review_text"] = cleaned["review_text"].fillna("").astype(str).str.strip()
     cleaned = cleaned[cleaned["review_text"].str.len() > 3].reset_index(drop=True)
-    report["empty_reviews_filtered"] = initial_count - len(cleaned)
+    report["empty_reviews_filtered"] = int(post_dedup_count - len(cleaned))
 
     cleaned["review_date"] = pd.to_datetime(cleaned["review_date"])
     cleaned = cleaned.sort_values("review_date").reset_index(drop=True)
@@ -135,11 +139,12 @@ def clean_interactions(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Any]]:
 
     initial_count = len(cleaned)
     cleaned = cleaned.drop_duplicates(subset=["interaction_id"]).reset_index(drop=True)
-    report["duplicates_removed"] = initial_count - len(cleaned)
+    post_dedup_count = len(cleaned)
+    report["duplicates_removed"] = int(initial_count - post_dedup_count)
 
     valid_types = {"view", "click", "wishlist", "cart", "purchase"}
     cleaned = cleaned[cleaned["interaction_type"].isin(valid_types)].reset_index(drop=True)
-    report["invalid_types_filtered"] = initial_count - len(cleaned)
+    report["invalid_types_filtered"] = int(post_dedup_count - len(cleaned))
 
     cleaned["timestamp"] = pd.to_datetime(cleaned["timestamp"])
     cleaned = cleaned.sort_values("timestamp").reset_index(drop=True)

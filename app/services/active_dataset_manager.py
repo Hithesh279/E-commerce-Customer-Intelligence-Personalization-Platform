@@ -6,14 +6,20 @@ application (Main, Overview, Customer Intelligence, Product Intelligence,
 NLP Voice, Recommendations) updates synchronously to display everything related
 to that data, and enables 1-click downloads of the entire dashboard across all pages.
 """
+import base64
 from datetime import datetime
+import hashlib
+import html
 import io
+import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+import sys
+from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
 import streamlit as st
 
+from src.analytics.customer_analytics import get_segment_summary
 from src.analytics.auto_analyzer import (
     analyze_custom_reviews,
     analyze_custom_transactions,
@@ -30,10 +36,47 @@ from src.analytics.templates import (
     TEMPLATES_CONFIG,
     load_sample_template,
 )
-from src.utils.config import PROCESSED_DATA_DIR
+from src import __version__ as PLATFORM_VERSION
+from src.utils.config import (
+    DATABASE_PATH,
+    METRICS_FILE,
+    MODELS_RECOMMENDATION_DIR,
+    MODELS_SENTIMENT_DIR,
+    PROCESSED_DATA_DIR,
+)
 from src.utils.logging import get_logger
 
 logger = get_logger("active_dataset_manager")
+
+
+def _should_persist_exports_to_disk() -> bool:
+    """Skip writing temporary export files to disk during automated test runs."""
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return False
+    return True
+
+
+def get_default_demo_summary() -> Dict[str, int]:
+    """Row counts of the bundled demo store, read from the processed files."""
+    summary = {}
+    for name in ["customers", "products", "transactions", "reviews"]:
+        path = PROCESSED_DATA_DIR / f"{name}.csv"
+        summary[name] = len(pd.read_csv(path, usecols=[0])) if path.exists() else 0
+    return summary
+
+
+def get_system_status() -> List[Tuple[str, bool]]:
+    """Real file-existence checks for the sidebar status panel."""
+    return [
+        ("Relational database", DATABASE_PATH.exists()),
+        ("Sentiment model", (MODELS_SENTIMENT_DIR / "model.joblib").exists()),
+        ("Recommendation models", (MODELS_RECOMMENDATION_DIR / "collaborative_model.joblib").exists()),
+        ("Evaluation metrics", METRICS_FILE.exists()),
+    ]
+
+
+def platform_version() -> str:
+    return PLATFORM_VERSION
 
 
 def _is_streamlit_running() -> bool:
@@ -45,6 +88,8 @@ def _is_streamlit_running() -> bool:
 
 
 _DEFAULT_DEMO_BUNDLES_CACHE: Optional[Dict[str, Any]] = None
+_MODULE_ACTIVE_DATASET: Optional[Dict[str, Any]] = None
+_GLOBAL_EXPORT_CACHE: Dict[Tuple[str, str], Union[bytes, str]] = {}
 
 
 def get_default_demo_bundles() -> Dict[str, Any]:
@@ -92,6 +137,19 @@ def get_default_demo_bundles() -> Dict[str, Any]:
     return res
 
 
+PRODUCT_COLUMNS = [
+    "product_id", "product_name", "category", "price", "units_sold", "total_orders", "net_revenue",
+    "gross_revenue", "returned_units", "return_rate", "review_count", "average_rating",
+    "positive_sentiment_pct", "negative_sentiment_pct", "is_high_sales_low_sentiment",
+    "is_low_sales_high_sentiment", "product_description",
+]
+PROFILE_COLUMNS = [
+    "customer_id", "customer_segment", "rfm_segment", "rfm_score", "recency_days",
+    "total_orders", "net_spend", "average_order_value",
+]
+ASPECT_COLUMNS = ["aspect", "review_id", "sentiment", "sentiment_score", "snippet"]
+
+
 def build_custom_analytics_bundles(
     df: pd.DataFrame,
     schema_info: Dict[str, Any],
@@ -103,361 +161,126 @@ def build_custom_analytics_bundles(
     enriched_df: pd.DataFrame,
 ) -> Tuple[Dict[str, Any], pd.DataFrame]:
     """
-    Synthesize complete, strictly-typed analytical bundles from any custom dataset
-    so that all existing platform pages (Main, Overview, Customer Intelligence,
-    Product Intelligence, NLP Insights, Recommendations) render smoothly and accurately.
+    Build the bundles every dashboard page reads for an uploaded dataset.
+
+    Only values derived from the uploaded data are used. A metric whose source column is missing is
+    None (shown as "N/A"), and a chart without data is an empty DataFrame with the expected columns.
+    Nothing is generated to fill a gap.
     """
-    total_rows = len(df)
     mappings = schema_info.get("detected_mappings") or schema_info.get("mappings") or {}
+    customer_col = mappings.get("customer_col")
+    has_txns = txn_data.get("total_revenue") is not None
+    has_revs = reviews_data is not None
 
-    modalities = schema_info.get("modalities", {})
-    has_txns = modalities.get("has_transactions", False) or txn_data.get("total_revenue", 0.0) > 0
-    has_revs = modalities.get("has_reviews", False) or (reviews_data is not None)
+    # 1. Executive KPIs (None where the dataset does not provide the input)
+    total_rev = txn_data.get("total_revenue")
+    total_orders = txn_data.get("total_orders")
+    aov = txn_data.get("aov")
+    return_rate = txn_data.get("return_rate")
 
-    # -------------------------------------------------------------
-    # 1. Executive KPIs Scorecard
-    # -------------------------------------------------------------
-    total_rev = txn_data.get("total_revenue", 0.0)
-    total_orders = txn_data.get("total_orders", 0)
-
-    # Fallback to any numeric money column ONLY if transactions or monetary metrics are detected
-    if total_rev <= 0.0 and has_txns:
-        numeric_cols = df.select_dtypes(include=[np.number]).columns
-        candidate_money = [c for c in numeric_cols if any(k in str(c).lower() for k in ["amount", "rev", "price", "spend", "cost", "mrr", "fee", "val"])]
-        if candidate_money:
-            total_rev = round(float(df[candidate_money[0]].sum()), 2)
-        elif len(numeric_cols) > 0:
-            total_rev = round(float(df[numeric_cols[0]].sum()), 2)
-
-    if total_orders <= 0:
-        total_orders = max(total_rows, 1)
-
-    aov = txn_data.get("aov", round(total_rev / max(total_orders, 1), 2) if total_rev > 0 else 0.0)
-    return_rate = txn_data.get("return_rate", 0.0 if not has_txns else 4.8)
-
-    avg_rating = 4.35
-    pos_pct = 78.5
-    neg_pct = 8.5
-    neu_pct = 13.0
-
+    avg_rating = pos_pct = neg_pct = neu_pct = None
     if reviews_data is not None:
-        avg_rating = reviews_data.get("avg_rating", 4.35)
-        pos_pct = reviews_data.get("positive_pct", 78.5)
-        neg_pct = reviews_data.get("negative_pct", 8.5)
-        neu_pct = reviews_data.get("neutral_pct", 13.0)
-    elif mappings.get("rating_col") and mappings["rating_col"] in df.columns:
-        valid_ratings = pd.to_numeric(df[mappings["rating_col"]], errors="coerce").dropna()
-        if len(valid_ratings) > 0:
-            avg_rating = round(float(valid_ratings.mean()), 2)
-            pos_pct = round(float((valid_ratings >= 4).mean() * 100), 1)
-            neg_pct = round(float((valid_ratings <= 2).mean() * 100), 1)
-            neu_pct = round(100.0 - pos_pct - neg_pct, 1)
+        avg_rating = reviews_data.get("avg_rating")
+        pos_pct = reviews_data.get("positive_pct")
+        neg_pct = reviews_data.get("negative_pct")
+        neu_pct = reviews_data.get("neutral_pct")
 
-    repeat_rate = 42.0
-    if rfm_df is not None and not rfm_df.empty and "frequency_count" in rfm_df.columns:
-        repeat_rate = round(float((rfm_df["frequency_count"] > 1).mean() * 100), 1)
+    repeat_rate = None
+    if rfm_df is not None and not rfm_df.empty and "frequency" in rfm_df.columns:
+        repeat_rate = round(float((rfm_df["frequency"] > 1).mean() * 100), 1)
 
-    total_cust = 200
+    total_cust = None
     if rfm_metrics is not None:
-        total_cust = rfm_metrics.get("total_customers", 200)
-    elif mappings.get("customer_col") and mappings["customer_col"] in df.columns:
-        total_cust = int(df[mappings["customer_col"]].nunique())
+        total_cust = rfm_metrics.get("total_customers")
+    elif customer_col and customer_col in df.columns:
+        total_cust = int(df[customer_col].nunique())
 
+    net_sentiment = round(pos_pct - neg_pct, 1) if pos_pct is not None and neg_pct is not None else None
     exec_kpis = {
-        "total_gross_revenue": round(total_rev * 1.05, 2) if total_rev > 0 else 0.0,
-        "total_net_revenue": round(total_rev, 2),
-        "total_orders": int(total_orders),
-        "total_customers": int(total_cust),
-        "average_order_value": float(aov),
-        "overall_return_rate_pct": float(return_rate),
-        "repeat_customer_rate_pct": float(repeat_rate),
-        "average_rating": float(avg_rating),
-        "positive_sentiment_pct": float(pos_pct),
-        "neutral_sentiment_pct": float(neu_pct),
-        "negative_sentiment_pct": float(neg_pct),
-        "net_sentiment_score": round(pos_pct - neg_pct, 1),
+        "total_gross_revenue": None,  # no separate gross column in an uploaded file
+        "total_net_revenue": total_rev,
+        "total_orders": total_orders,
+        "total_customers": total_cust,
+        "average_order_value": aov,
+        "overall_return_rate_pct": return_rate,
+        "repeat_customer_rate_pct": repeat_rate,
+        "average_rating": avg_rating,
+        "positive_sentiment_pct": pos_pct,
+        "neutral_sentiment_pct": neu_pct,
+        "negative_sentiment_pct": neg_pct,
+        "net_sentiment_score": net_sentiment,
         "has_transactions": has_txns,
         "has_reviews": has_revs,
     }
 
-    # -------------------------------------------------------------
-    # 2. Monthly / Period Timeline Trend
-    # -------------------------------------------------------------
-    timeline_df = txn_data.get("timeline_df", pd.DataFrame())
-    if not timeline_df.empty:
-        monthly_trend = timeline_df.copy()
-        if "period" in monthly_trend.columns and "year_month" not in monthly_trend.columns:
-            monthly_trend["year_month"] = monthly_trend["period"]
-        if "revenue" in monthly_trend.columns and "total_revenue" not in monthly_trend.columns:
-            monthly_trend["total_revenue"] = monthly_trend["revenue"]
-        if "orders" in monthly_trend.columns and "order_count" not in monthly_trend.columns:
-            monthly_trend["order_count"] = monthly_trend["orders"]
-        if "returned_orders" not in monthly_trend.columns:
-            monthly_trend["returned_orders"] = (monthly_trend["order_count"] * (return_rate / 100)).round().astype(int)
-        if "return_rate_pct" not in monthly_trend.columns:
-            monthly_trend["return_rate_pct"] = return_rate
+    # 2. Monthly trend: only from a real date column with a revenue column
+    timeline_df = txn_data.get("timeline_df")
+    if isinstance(timeline_df, pd.DataFrame) and not timeline_df.empty:
+        monthly_trend = timeline_df.rename(
+            columns={"period": "year_month", "revenue": "total_revenue", "orders": "order_count"}
+        )
     else:
-        # Generate synthetic 6-month timeline if no date column exists
-        periods = ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06"]
-        share = [0.13, 0.15, 0.16, 0.18, 0.18, 0.20]
-        monthly_trend = pd.DataFrame({
-            "year_month": periods,
-            "total_revenue": [round(total_rev * s, 2) for s in share],
-            "order_count": [max(1, int(total_orders * s)) for s in share],
-            "returned_orders": [max(0, int(total_orders * s * 0.05)) for s in share],
-            "return_rate_pct": [round(return_rate + np.random.uniform(-1, 1), 1) for _ in share],
+        monthly_trend = pd.DataFrame(columns=["year_month", "total_revenue", "order_count"])
+
+    # 3. Category performance: only from a real category column with a revenue column
+    cat_df = txn_data.get("category_df")
+    if isinstance(cat_df, pd.DataFrame) and not cat_df.empty:
+        cat_perf = cat_df.rename(columns={cat_df.columns[0]: "category"}).copy()
+    else:
+        cat_perf = pd.DataFrame(columns=["category", "revenue", "orders", "share_pct"])
+
+    # 4. Customer profiles and segments: only from computed RFM output
+    if rfm_df is not None and not rfm_df.empty and customer_col and customer_col in rfm_df.columns:
+        spend = pd.to_numeric(rfm_df["monetary_total"], errors="coerce")
+        orders = pd.to_numeric(rfm_df["frequency"], errors="coerce")
+        cust_profiles = pd.DataFrame({
+            "customer_id": rfm_df[customer_col].astype(str),
+            "customer_segment": rfm_df["rfm_segment"],
+            "rfm_segment": rfm_df["rfm_segment"],
+            "rfm_score": rfm_df["rfm_score"],
+            "recency_days": rfm_df["recency_days"],
+            "total_orders": orders,
+            "net_spend": spend,
+            "average_order_value": (spend / orders.clip(lower=1)).round(2),
         })
-
-    # -------------------------------------------------------------
-    # 3. Category / Department Performance
-    # -------------------------------------------------------------
-    cat_df = txn_data.get("category_df", pd.DataFrame())
-    if not cat_df.empty:
-        cat_perf = cat_df.copy()
-        first_cat_col = cat_perf.columns[0]
-        if first_cat_col != "category":
-            cat_perf["category"] = cat_perf[first_cat_col]
-        if "revenue" not in cat_perf.columns:
-            second_col = cat_perf.columns[1] if len(cat_perf.columns) > 1 else first_cat_col
-            cat_perf["revenue"] = cat_perf[second_col]
-        if "orders" not in cat_perf.columns:
-            cat_perf["orders"] = (cat_perf["revenue"] / max(aov, 1)).round().astype(int).clip(lower=1)
-        if "units_sold" not in cat_perf.columns:
-            cat_perf["units_sold"] = cat_perf["orders"] * 2
-        if "returns" not in cat_perf.columns:
-            cat_perf["returns"] = (cat_perf["orders"] * 0.05).round().astype(int)
-        if "return_rate" not in cat_perf.columns:
-            cat_perf["return_rate"] = 5.0
-        if "avg_rating" not in cat_perf.columns:
-            cat_perf["avg_rating"] = avg_rating
     else:
-        # Look for any text/categorical column in df
-        cat_candidates = [c for c in df.select_dtypes(include=["object"]).columns if 2 <= df[c].nunique() <= 15]
-        if cat_candidates:
-            col_picked = cat_candidates[0]
-            val_counts = df[col_picked].value_counts().head(6).reset_index()
-            val_counts.columns = ["category", "orders"]
-            val_counts["revenue"] = (val_counts["orders"] / total_rows * total_rev).round(2)
-            val_counts["units_sold"] = val_counts["orders"] * 2
-            val_counts["returns"] = (val_counts["orders"] * 0.04).round().astype(int)
-            val_counts["return_rate"] = 4.0
-            val_counts["avg_rating"] = avg_rating
-            cat_perf = val_counts
-        else:
-            cat_perf = pd.DataFrame([
-                {"category": "Core Line", "revenue": round(total_rev * 0.55, 2), "orders": int(total_orders * 0.55), "units_sold": int(total_orders * 1.1), "returns": 4, "return_rate": 4.5, "avg_rating": avg_rating},
-                {"category": "Premium Line", "revenue": round(total_rev * 0.30, 2), "orders": int(total_orders * 0.30), "units_sold": int(total_orders * 0.6), "returns": 2, "return_rate": 3.0, "avg_rating": 4.6},
-                {"category": "Accessories", "revenue": round(total_rev * 0.15, 2), "orders": int(total_orders * 0.15), "units_sold": int(total_orders * 0.4), "returns": 1, "return_rate": 2.5, "avg_rating": 4.4},
-            ])
+        cust_profiles = pd.DataFrame(columns=PROFILE_COLUMNS)
+    seg_summary = get_segment_summary(cust_profiles)
 
-    # -------------------------------------------------------------
-    # 4. Customer Behavioral Profiles & Segments (RFM)
-    # -------------------------------------------------------------
-    if rfm_df is not None and not rfm_df.empty:
-        cust_profiles = rfm_df.copy()
-        if "customer_segment" not in cust_profiles.columns:
-            cust_profiles["customer_segment"] = cust_profiles.get("rfm_segment", "Loyal Customers")
-        if "rfm_segment" not in cust_profiles.columns:
-            cust_profiles["rfm_segment"] = cust_profiles["customer_segment"]
-        if "rfm_score" not in cust_profiles.columns:
-            cust_profiles["rfm_score"] = "444"
-        if "membership_type" not in cust_profiles.columns:
-            cust_profiles["membership_type"] = cust_profiles["customer_segment"].apply(
-                lambda s: "VIP Platinum" if "Champion" in str(s) else ("Gold" if "Loyal" in str(s) else "Standard")
-            )
-        if "net_spend" not in cust_profiles.columns:
-            cust_profiles["net_spend"] = cust_profiles.get("monetary_total", aov)
-        if "gross_spend" not in cust_profiles.columns:
-            cust_profiles["gross_spend"] = (cust_profiles["net_spend"] * 1.05).round(2)
-        if "total_orders" not in cust_profiles.columns:
-            cust_profiles["total_orders"] = cust_profiles.get("frequency_count", 1)
-        if "total_items_purchased" not in cust_profiles.columns:
-            cust_profiles["total_items_purchased"] = cust_profiles["total_orders"] * 2
-        if "returned_orders" not in cust_profiles.columns:
-            cust_profiles["returned_orders"] = 0
-        if "return_rate" not in cust_profiles.columns:
-            cust_profiles["return_rate"] = 2.5
-        if "average_order_value" not in cust_profiles.columns:
-            cust_profiles["average_order_value"] = (cust_profiles["net_spend"] / cust_profiles["total_orders"].clip(lower=1)).round(2)
-        if "age" not in cust_profiles.columns:
-            cust_profiles["age"] = np.random.randint(22, 60, size=len(cust_profiles))
-        if "gender" not in cust_profiles.columns:
-            cust_profiles["gender"] = np.random.choice(["Female", "Male", "Other"], size=len(cust_profiles))
-        if "city" not in cust_profiles.columns:
-            cust_profiles["city"] = "Austin"
-        if "country" not in cust_profiles.columns:
-            cust_profiles["country"] = "United States"
-        if "preferred_category" not in cust_profiles.columns:
-            cust_profiles["preferred_category"] = cat_perf["category"].iloc[0] if not cat_perf.empty else "General"
-        if "reviews_written" not in cust_profiles.columns:
-            cust_profiles["reviews_written"] = 1
-        if "avg_rating_given" not in cust_profiles.columns:
-            cust_profiles["avg_rating_given"] = avg_rating
-
-        if rfm_metrics is not None and not rfm_metrics.get("segment_summary", pd.DataFrame()).empty:
-            seg_summary = rfm_metrics["segment_summary"].copy()
-        else:
-            seg_summary = cust_profiles.groupby("customer_segment").agg(
-                customer_count=("customer_id", "count"),
-                total_revenue=("net_spend", "sum"),
-                avg_revenue_per_customer=("net_spend", "mean"),
-                avg_orders=("total_orders", "mean"),
-                avg_aov=("average_order_value", "mean"),
-                avg_return_rate=("return_rate", "mean"),
-            ).reset_index()
+    # 5. Product performance: only from a real product column in the transactions
+    top_p = txn_data.get("top_products_df")
+    if isinstance(top_p, pd.DataFrame) and not top_p.empty:
+        names = top_p[top_p.columns[0]].astype(str)
+        prod_perf = pd.DataFrame({
+            "product_id": names,
+            "product_name": names,
+            "category": None,
+            "price": None,
+            "units_sold": None,
+            "total_orders": top_p["orders"] if "orders" in top_p.columns else None,
+            "net_revenue": top_p["revenue"] if "revenue" in top_p.columns else None,
+            "gross_revenue": None,
+            "returned_units": None,
+            "return_rate": None,
+            "review_count": None,
+            "average_rating": None,
+            "positive_sentiment_pct": None,
+            "negative_sentiment_pct": None,
+            "is_high_sales_low_sentiment": False,
+            "is_low_sales_high_sentiment": False,
+            "product_description": None,
+        })
     else:
-        # Synthesize realistic customer profiles from rows
-        n_cust = min(max(int(total_rows * 0.5), 15), 150)
-        c_rows = []
-        seg_choices = ["Champions", "Loyal Customers", "New / Promising", "At Risk", "Lost / Inactive"]
-        seg_weights = [0.15, 0.35, 0.25, 0.15, 0.10]
-        for i in range(n_cust):
-            seg = np.random.choice(seg_choices, p=seg_weights)
-            orders = np.random.randint(1, 10) if "Champion" in seg or "Loyal" in seg else np.random.randint(1, 3)
-            spend = round(orders * aov * np.random.uniform(0.8, 1.4), 2)
-            c_rows.append({
-                "customer_id": f"CUST-{1000 + i}",
-                "customer_segment": seg,
-                "rfm_segment": seg,
-                "rfm_score": "555" if "Champion" in seg else ("444" if "Loyal" in seg else "222"),
-                "membership_type": "VIP Platinum" if "Champion" in seg else ("Gold" if "Loyal" in seg else "Standard"),
-                "net_spend": spend,
-                "gross_spend": round(spend * 1.05, 2),
-                "total_orders": orders,
-                "total_items_purchased": orders * 2,
-                "returned_orders": 1 if np.random.rand() < 0.1 else 0,
-                "return_rate": 5.0,
-                "average_order_value": round(spend / max(orders, 1), 2),
-                "age": np.random.randint(22, 58),
-                "gender": np.random.choice(["Female", "Male", "Other"]),
-                "city": np.random.choice(["New York", "San Francisco", "Austin", "Chicago", "Seattle"]),
-                "country": "United States",
-                "preferred_category": cat_perf["category"].iloc[0] if not cat_perf.empty else "General",
-                "reviews_written": np.random.randint(0, 3),
-                "avg_rating_given": avg_rating,
-            })
-        cust_profiles = pd.DataFrame(c_rows)
-        seg_summary = cust_profiles.groupby("customer_segment").agg(
-            customer_count=("customer_id", "count"),
-            total_revenue=("net_spend", "sum"),
-            avg_revenue_per_customer=("net_spend", "mean"),
-            avg_orders=("total_orders", "mean"),
-            avg_aov=("average_order_value", "mean"),
-            avg_return_rate=("return_rate", "mean"),
-        ).reset_index()
+        prod_perf = pd.DataFrame(columns=PRODUCT_COLUMNS)
 
-    # -------------------------------------------------------------
-    # 5. Product Performance Matrix
-    # -------------------------------------------------------------
-    top_p = txn_data.get("top_products_df", pd.DataFrame())
-    if not top_p.empty:
-        prod_perf = top_p.copy()
-        if "product_id" not in prod_perf.columns:
-            prod_perf["product_id"] = [f"SKU-{2000 + i}" for i in range(len(prod_perf))]
-        if "product_name" not in prod_perf.columns:
-            first_c = prod_perf.columns[0]
-            prod_perf["product_name"] = prod_perf[first_c].astype(str)
-        if "category" not in prod_perf.columns:
-            prod_perf["category"] = cat_perf["category"].iloc[0] if not cat_perf.empty else "General"
-        if "price" not in prod_perf.columns:
-            prod_perf["price"] = round(aov * 0.8, 2)
-        if "units_sold" not in prod_perf.columns:
-            prod_perf["units_sold"] = np.random.randint(20, 300, size=len(prod_perf))
-        if "total_orders" not in prod_perf.columns:
-            prod_perf["total_orders"] = prod_perf["units_sold"]
-        if "net_revenue" not in prod_perf.columns:
-            second_c = prod_perf.columns[1] if len(prod_perf.columns) > 1 else "price"
-            prod_perf["net_revenue"] = pd.to_numeric(prod_perf[second_c], errors="coerce").fillna(prod_perf["price"] * prod_perf["units_sold"])
-        if "gross_revenue" not in prod_perf.columns:
-            prod_perf["gross_revenue"] = (prod_perf["net_revenue"] * 1.05).round(2)
-        if "returned_units" not in prod_perf.columns:
-            prod_perf["returned_units"] = (prod_perf["units_sold"] * 0.04).round().astype(int)
-        if "return_rate" not in prod_perf.columns:
-            prod_perf["return_rate"] = 4.0
-        if "review_count" not in prod_perf.columns:
-            prod_perf["review_count"] = np.random.randint(5, 50, size=len(prod_perf))
-        if "average_rating" not in prod_perf.columns:
-            prod_perf["average_rating"] = [round(avg_rating + np.random.uniform(-0.6, 0.4), 2) for _ in range(len(prod_perf))]
-        if "positive_sentiment_pct" not in prod_perf.columns:
-            prod_perf["positive_sentiment_pct"] = pos_pct
-        if "negative_sentiment_pct" not in prod_perf.columns:
-            prod_perf["negative_sentiment_pct"] = neg_pct
-        prod_perf["is_high_sales_low_sentiment"] = (prod_perf["units_sold"] > prod_perf["units_sold"].median()) & (prod_perf["average_rating"] < 3.2)
-        prod_perf["is_low_sales_high_sentiment"] = (prod_perf["units_sold"] <= prod_perf["units_sold"].median()) & (prod_perf["average_rating"] > 4.4)
+    # 6. Aspect observations: the real extracted mentions, nothing else
+    aspect_records = (reviews_data or {}).get("aspect_records", [])
+    if aspect_records:
+        aspects_df = pd.DataFrame(aspect_records)
+        aspects_df["review_id"] = aspects_df["review_row"].map(lambda i: f"ROW-{int(i) + 1}")
+        aspects_df = aspects_df[ASPECT_COLUMNS]
     else:
-        # Create from categories or sample rows
-        n_prods = min(max(int(total_rows * 0.3), 10), 40)
-        p_rows = []
-        for i in range(n_prods):
-            price = round(float(np.random.uniform(25.0, 220.0)), 2)
-            units = np.random.randint(15, 250)
-            rating = round(float(np.random.uniform(2.8, 4.9)), 2)
-            ret_rate = round(float(np.random.uniform(1.2, 9.5)), 1)
-            cat_choice = str(cat_perf["category"].iloc[i % len(cat_perf)]) if not cat_perf.empty else "General"
-            p_rows.append({
-                "product_id": f"SKU-{3000 + i}",
-                "product_name": f"Product Item {i + 1} ({cat_choice})",
-                "category": cat_choice,
-                "price": price,
-                "units_sold": units,
-                "total_orders": units,
-                "net_revenue": round(price * units, 2),
-                "gross_revenue": round(price * units * 1.05, 2),
-                "returned_units": int(units * (ret_rate / 100)),
-                "return_rate": ret_rate,
-                "review_count": np.random.randint(8, 45),
-                "average_rating": rating,
-                "positive_sentiment_pct": round((rating / 5.0) * 100, 1),
-                "negative_sentiment_pct": round(max(0, (5.0 - rating) / 5.0 * 60), 1),
-                "is_high_sales_low_sentiment": units > 120 and rating < 3.3,
-                "is_low_sales_high_sentiment": units < 50 and rating > 4.5 and ret_rate < 3.0,
-            })
-        prod_perf = pd.DataFrame(p_rows)
-
-    if "product_description" not in prod_perf.columns:
-        prod_perf["product_description"] = [
-            f"High-quality {r.get('product_name', 'item')} engineered for reliable performance."
-            for _, r in prod_perf.iterrows()
-        ]
-
-    # -------------------------------------------------------------
-    # 6. Aspects DataFrame (for NLP Insights radar & table)
-    # -------------------------------------------------------------
-    aspects_list = []
-    if reviews_data is not None and not reviews_data.get("aspect_summary", pd.DataFrame()).empty:
-        for _, row in reviews_data["aspect_summary"].iterrows():
-            asp = row["aspect"]
-            mentions = int(row.get("mentions", 10))
-            score = float(row.get("avg_sentiment_score", 0.35))
-            pos_m = int(row.get("positive_mentions", mentions // 2))
-            neg_m = int(row.get("negative_mentions", mentions // 4))
-
-            for k in range(pos_m):
-                aspects_list.append({"aspect": asp, "review_id": f"REV-{len(aspects_list)+1}", "sentiment": "Positive", "sentiment_score": abs(score)})
-            for k in range(neg_m):
-                aspects_list.append({"aspect": asp, "review_id": f"REV-{len(aspects_list)+1}", "sentiment": "Negative", "sentiment_score": -abs(score)})
-            for k in range(max(0, mentions - pos_m - neg_m)):
-                aspects_list.append({"aspect": asp, "review_id": f"REV-{len(aspects_list)+1}", "sentiment": "Neutral", "sentiment_score": 0.0})
-    else:
-        # Default 11 core product aspects
-        core_aspects = [
-            ("battery", 0.65, "Positive", 45),
-            ("performance", 0.72, "Positive", 52),
-            ("camera", 0.48, "Positive", 38),
-            ("display", 0.55, "Positive", 40),
-            ("sound", 0.38, "Positive", 30),
-            ("build_quality", 0.60, "Positive", 42),
-            ("price", -0.15, "Negative", 35),
-            ("delivery", -0.25, "Negative", 28),
-            ("customer_service", 0.30, "Positive", 25),
-            ("software", 0.20, "Positive", 22),
-            ("durability", 0.50, "Positive", 34),
-        ]
-        for asp, sc, sent, count in core_aspects:
-            for k in range(count):
-                aspects_list.append({"aspect": asp, "review_id": f"REV-{len(aspects_list)+1}", "sentiment": sent, "sentiment_score": sc})
-
-    aspects_df = pd.DataFrame(aspects_list)
+        aspects_df = pd.DataFrame(columns=ASPECT_COLUMNS)
 
     bundles = {
         "exec_kpis": exec_kpis,
@@ -471,7 +294,6 @@ def build_custom_analytics_bundles(
         "has_transactions": has_txns,
         "has_reviews": has_revs,
     }
-
     return bundles, aspects_df
 
 
@@ -484,7 +306,8 @@ def set_active_custom_dataset(
     rfm_df: Optional[pd.DataFrame] = None,
     rfm_metrics: Optional[Dict[str, Any]] = None,
     table_profile: Optional[Dict[str, Any]] = None,
-    enriched_df: Optional[pd.DataFrame] = None,
+    enriched_df: Optional[Dict[str, Any]] = None,
+    analysis_sig: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """
     Set and store the active dataset across the entire application.
@@ -507,6 +330,8 @@ def set_active_custom_dataset(
                 rating_col=rating_col,
                 sentiment_col=sentiment_col,
             )
+
+    assert enriched_df is not None
 
     if txn_data is None:
         txn_data = analyze_custom_transactions(
@@ -561,16 +386,28 @@ def set_active_custom_dataset(
         "aspects_df": aspects_df,
         "row_count": len(df),
         "col_count": len(df.columns),
+        "analysis_sig": analysis_sig,
     }
 
+    global _MODULE_ACTIVE_DATASET, _GLOBAL_EXPORT_CACHE
+    _MODULE_ACTIVE_DATASET = dataset_state
+    _GLOBAL_EXPORT_CACHE.clear()
+
     if _is_streamlit_running():
-        old_ds = st.session_state.get("active_dataset_name")
-        if old_ds != source_label:
-            st.session_state.pop("_cached_active_reports", None)
-            st.session_state.pop("_cached_active_reports_key", None)
-        st.session_state["active_dataset"] = dataset_state
-        st.session_state["is_custom_active"] = True
-        st.session_state["active_dataset_name"] = source_label
+        try:
+            cache_key = compute_active_export_cache_key_for_state(dataset_state)
+            old_key = st.session_state.get("_cached_active_reports_key")
+            if old_key != cache_key:
+                st.session_state.pop("_cached_active_reports", None)
+                st.session_state.pop("_cached_active_reports_key", None)
+                for fmt in ["html", "excel", "md", "csv"]:
+                    st.session_state.pop(f"_cached_export_{fmt}", None)
+                    st.session_state.pop(f"_cached_export_{fmt}_key", None)
+            st.session_state["active_dataset"] = dataset_state
+            st.session_state["is_custom_active"] = True
+            st.session_state["active_dataset_name"] = source_label
+        except Exception:
+            pass
 
     logger.info(f"Active platform dataset set to: '{source_label}' with {len(df):,} rows.")
     return dataset_state
@@ -589,23 +426,36 @@ def load_template_as_active_dataset(template_id: str) -> Dict[str, Any]:
 
 def reset_to_default_demo_dataset():
     """Reset the platform back to the default e-commerce store dataset."""
+    global _MODULE_ACTIVE_DATASET, _GLOBAL_EXPORT_CACHE
+    _MODULE_ACTIVE_DATASET = None
+    _GLOBAL_EXPORT_CACHE.clear()
     if _is_streamlit_running():
-        if "active_dataset" in st.session_state:
-            del st.session_state["active_dataset"]
-        st.session_state["is_custom_active"] = False
-        st.session_state["active_dataset_name"] = "Default Demo Store Data"
-        st.session_state.pop("_cached_active_reports", None)
-        st.session_state.pop("_cached_active_reports_key", None)
-        st.session_state.pop("_analyzer_cache_sig", None)
+        try:
+            if "active_dataset" in st.session_state:
+                del st.session_state["active_dataset"]
+            st.session_state["is_custom_active"] = False
+            st.session_state["active_dataset_name"] = "Default Demo Store Data"
+            st.session_state.pop("_cached_active_reports", None)
+            st.session_state.pop("_cached_active_reports_key", None)
+            st.session_state.pop("_analyzer_cache_sig", None)
+            for fmt in ["html", "excel", "md", "csv"]:
+                st.session_state.pop(f"_cached_export_{fmt}", None)
+                st.session_state.pop(f"_cached_export_{fmt}_key", None)
+        except Exception:
+            pass
     logger.info("Platform dataset reset to default processed demo dataset.")
 
 
 def get_active_dataset_state() -> Optional[Dict[str, Any]]:
     """Retrieve the current active dataset state dict, or None if default."""
     if _is_streamlit_running():
-        if st.session_state.get("is_custom_active", False) and "active_dataset" in st.session_state:
-            return st.session_state["active_dataset"]
-    return None
+        try:
+            if st.session_state.get("is_custom_active", False) and "active_dataset" in st.session_state:
+                return st.session_state["active_dataset"]
+        except Exception:
+            pass
+    global _MODULE_ACTIVE_DATASET
+    return _MODULE_ACTIVE_DATASET
 
 
 def get_active_bundles() -> Dict[str, Any]:
@@ -645,26 +495,140 @@ def get_active_aspects_df() -> pd.DataFrame:
 _DEFAULT_DEMO_REPORTS_CACHE: Optional[Dict[str, Any]] = None
 
 
-def generate_active_dashboard_reports() -> Dict[str, Any]:
-    """
-    Generate complete export suite for the active platform dataset:
-    HTML/PDF executive report, multi-sheet Excel workbook, Markdown briefing, and CSV.
-    Caches results in session_state to ensure instant UI rendering.
-    """
-    global _DEFAULT_DEMO_REPORTS_CACHE
-    state = get_active_dataset_state()
+def compute_active_export_cache_key_for_state(state: Optional[Dict[str, Any]]) -> str:
+    """Compute an invalidated-on-change cache key for active dataset exports."""
+    if state is None:
+        return "default_demo"
 
-    # For default demo dataset, return instant module-level cache if available
-    if state is None and _DEFAULT_DEMO_REPORTS_CACHE is not None:
-        return _DEFAULT_DEMO_REPORTS_CACHE
+    dataset_name = state.get("dataset_name", "")
+    row_count = state.get("row_count", 0)
+    col_count = state.get("col_count", 0)
 
-    cache_key = f"{state['dataset_name']}_{state.get('row_count', 0)}_{state.get('col_count', 0)}" if state else "default_demo"
+    schema_info = state.get("schema_info") or {}
+    mappings = schema_info.get("detected_mappings") or schema_info.get("mappings") or {}
+
+    sig_parts = [
+        str(dataset_name),
+        str(row_count),
+        str(col_count),
+        repr(sorted((k, str(v)) for k, v in mappings.items())),
+    ]
+    if "analysis_sig" in state and state["analysis_sig"] is not None:
+        sig_parts.append(repr(state["analysis_sig"]))
+
+    sig_hash = hashlib.sha256("::".join(sig_parts).encode("utf-8")).hexdigest()[:16]
+    return f"{dataset_name}_{row_count}_{col_count}_{sig_hash}"
+
+
+def compute_active_export_cache_key(state: Optional[Dict[str, Any]] = None) -> str:
+    """Compute the current export cache key based on the active dataset state."""
+    if state is None:
+        state = get_active_dataset_state()
+    return compute_active_export_cache_key_for_state(state)
+
+
+def get_active_export_filename(
+    export_format: str,
+    state: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Get the standard output filename for a given export format."""
+    if state is None:
+        state = get_active_dataset_state()
+    label = state["dataset_name"] if state else "Default Demo Store Data"
+    ts = datetime.now().strftime("%Y%m%d")
+    clean_prefix = "".join(c if c.isalnum() else "_" for c in label.lower()).strip("_")
+    if export_format == "html":
+        return f"executive_analytics_report_{clean_prefix}_{ts}.html"
+    elif export_format == "excel":
+        return f"analytical_workbook_{clean_prefix}_{ts}.xlsx"
+    elif export_format == "md":
+        return f"executive_briefing_{clean_prefix}_{ts}.md"
+    elif export_format == "csv":
+        return f"dataset_{clean_prefix}_{ts}.csv"
+    return f"export_{clean_prefix}_{ts}.dat"
+
+
+def get_cached_export(
+    export_format: str,
+    state: Optional[Dict[str, Any]] = None,
+) -> Optional[Union[bytes, str]]:
+    """Retrieve pre-built export content from session_state or memory cache if available."""
+    if state is None:
+        state = get_active_dataset_state()
+    cache_key = compute_active_export_cache_key_for_state(state)
+    global _GLOBAL_EXPORT_CACHE
+    if (export_format, cache_key) in _GLOBAL_EXPORT_CACHE:
+        return _GLOBAL_EXPORT_CACHE[(export_format, cache_key)]
+    if _is_streamlit_running():
+        try:
+            session_k = f"_cached_export_{export_format}"
+            session_key_k = f"_cached_export_{export_format}_key"
+            if st.session_state.get(session_key_k) == cache_key:
+                return st.session_state.get(session_k)
+        except Exception:
+            pass
+    return None
+
+
+def _prepare_default_demo_export_inputs():
+    """Prepare enriched transaction, review, and RFM structures for the Default Demo Store."""
+    label = "Default Demo Store Data"
+    txns_df = pd.read_csv(PROCESSED_DATA_DIR / "transactions.csv")
+    rev_df = pd.read_csv(PROCESSED_DATA_DIR / "reviews.csv")
+    prod_df = pd.read_csv(PROCESSED_DATA_DIR / "products.csv")
+
+    df = txns_df.merge(
+        prod_df[["product_id", "product_name", "category"]],
+        on="product_id",
+        how="left",
+    )
+    schema_info = detect_schema(df)
+    txn_data = analyze_custom_transactions(
+        df,
+        date_col="transaction_date",
+        revenue_col="total_amount",
+        customer_col="customer_id",
+        category_col="category",
+        product_col="product_name",
+        status_col="return_status",
+    )
+    _, reviews_data = analyze_custom_reviews(rev_df, text_col="review_text", rating_col="rating")
+    rfm_df, rfm_metrics = calculate_custom_rfm(
+        df,
+        customer_col="customer_id",
+        date_col="transaction_date",
+        revenue_col="total_amount",
+    )
+    return df, label, schema_info, txn_data, reviews_data, rfm_df, rfm_metrics
+
+
+def get_active_export_data(
+    export_format: str,
+    state: Optional[Dict[str, Any]] = None,
+) -> Union[bytes, str]:
+    """
+    Lazily build and return data for a single export format ('html', 'excel', 'md', 'csv').
+    Does NOT build other formats. Auto-saves to exports/ on generation (when not running pytest) and caches results.
+    """
+    if state is None:
+        state = get_active_dataset_state()
+
+    cache_key = compute_active_export_cache_key_for_state(state)
+    session_k = f"_cached_export_{export_format}"
+    session_key_k = f"_cached_export_{export_format}_key"
+
+    global _GLOBAL_EXPORT_CACHE
+    if (export_format, cache_key) in _GLOBAL_EXPORT_CACHE:
+        return _GLOBAL_EXPORT_CACHE[(export_format, cache_key)]
 
     if _is_streamlit_running():
-        cached = st.session_state.get("_cached_active_reports")
-        cached_key = st.session_state.get("_cached_active_reports_key")
-        if cached is not None and cached_key == cache_key:
-            return cached
+        try:
+            cached_val = st.session_state.get(session_k)
+            if cached_val is not None and st.session_state.get(session_key_k) == cache_key:
+                _GLOBAL_EXPORT_CACHE[(export_format, cache_key)] = cached_val
+                return cached_val
+        except Exception:
+            pass
 
     if state is not None:
         df = state["enriched_df"]
@@ -675,25 +639,117 @@ def generate_active_dashboard_reports() -> Dict[str, Any]:
         rfm_metrics = state["rfm_metrics"]
         rfm_df = state["rfm_df"]
     else:
-        # Default demo dataset
-        label = "Default Demo Store Data"
-        df = pd.read_csv(PROCESSED_DATA_DIR / "transactions.csv")
-        cust_df = pd.read_csv(PROCESSED_DATA_DIR / "customers.csv")
-        rev_df = pd.read_csv(PROCESSED_DATA_DIR / "reviews.csv")
-        prod_df = pd.read_csv(PROCESSED_DATA_DIR / "products.csv")
+        df, label, schema_info, txn_data, reviews_data, rfm_df, rfm_metrics = _prepare_default_demo_export_inputs()
 
-        schema_info = detect_schema(df)
-        txn_data = analyze_custom_transactions(
-            df,
-            date_col="transaction_date",
-            revenue_col="total_amount",
-            customer_col="customer_id",
-            category_col="product_id",
-            product_col="product_id",
-            status_col="return_status",
+    exports_dir = Path(__file__).resolve().parent.parent.parent / "exports"
+    filename = get_active_export_filename(export_format, state=state)
+    file_path = exports_dir / filename
+    persist = _should_persist_exports_to_disk()
+    if persist:
+        exports_dir.mkdir(exist_ok=True, parents=True)
+
+    if export_format == "html":
+        content = generate_executive_html_report(
+            df=df,
+            data_source_label=label,
+            schema_info=schema_info,
+            txn_data=txn_data,
+            reviews_data=reviews_data,
+            rfm_metrics=rfm_metrics,
+            rfm_df=rfm_df,
         )
-        _, reviews_data = analyze_custom_reviews(rev_df, text_col="review_text", rating_col="rating")
-        rfm_df, rfm_metrics = calculate_custom_rfm(df, customer_col="customer_id", date_col="transaction_date", revenue_col="total_amount")
+        if persist:
+            try:
+                file_path.write_text(content, encoding="utf-8")
+            except Exception as e:
+                logger.warning(f"Could not auto-save {filename}: {e}")
+        res = content.encode("utf-8")
+    elif export_format == "excel":
+        content = generate_excel_analytical_workbook(
+            enriched_df=df,
+            data_source_label=label,
+            txn_data=txn_data,
+            reviews_data=reviews_data,
+            rfm_df=rfm_df,
+            rfm_metrics=rfm_metrics,
+        )
+        if persist:
+            try:
+                file_path.write_bytes(content)
+            except Exception as e:
+                logger.warning(f"Could not auto-save {filename}: {e}")
+        res = content
+    elif export_format == "md":
+        content = generate_markdown_report(
+            df=df,
+            data_source_label=label,
+            txn_data=txn_data,
+            reviews_data=reviews_data,
+            rfm_metrics=rfm_metrics,
+        )
+        if persist:
+            try:
+                file_path.write_text(content, encoding="utf-8")
+            except Exception as e:
+                logger.warning(f"Could not auto-save {filename}: {e}")
+        res = content.encode("utf-8")
+    elif export_format == "csv":
+        content = df.to_csv(index=False).encode("utf-8")
+        if persist:
+            try:
+                file_path.write_bytes(content)
+            except Exception as e:
+                logger.warning(f"Could not auto-save {filename}: {e}")
+        res = content
+    else:
+        raise ValueError(f"Unknown export format: {export_format}")
+
+    _GLOBAL_EXPORT_CACHE[(export_format, cache_key)] = res
+    if _is_streamlit_running():
+        try:
+            st.session_state[session_k] = res
+            st.session_state[session_key_k] = cache_key
+        except Exception:
+            pass
+
+    return res
+
+
+def generate_active_dashboard_reports(state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Generate complete export suite for the active platform dataset:
+    HTML/PDF executive report, multi-sheet Excel workbook, Markdown briefing, and CSV.
+    Caches results in session_state and memory to ensure instant UI rendering.
+    """
+    global _DEFAULT_DEMO_REPORTS_CACHE, _GLOBAL_EXPORT_CACHE
+    if state is None:
+        state = get_active_dataset_state()
+
+    # For default demo dataset, return instant module-level cache if available
+    if state is None and _DEFAULT_DEMO_REPORTS_CACHE is not None:
+        return _DEFAULT_DEMO_REPORTS_CACHE
+
+    cache_key = compute_active_export_cache_key_for_state(state)
+
+    if _is_streamlit_running():
+        try:
+            cached = st.session_state.get("_cached_active_reports")
+            cached_key = st.session_state.get("_cached_active_reports_key")
+            if cached is not None and cached_key == cache_key:
+                return cached
+        except Exception:
+            pass
+
+    if state is not None:
+        df = state["enriched_df"]
+        label = state["dataset_name"]
+        schema_info = state["schema_info"]
+        txn_data = state["txn_data"]
+        reviews_data = state["reviews_data"]
+        rfm_metrics = state["rfm_metrics"]
+        rfm_df = state["rfm_df"]
+    else:
+        df, label, schema_info, txn_data, reviews_data, rfm_df, rfm_metrics = _prepare_default_demo_export_inputs()
 
     html_report = generate_executive_html_report(
         df=df,
@@ -727,25 +783,234 @@ def generate_active_dashboard_reports() -> Dict[str, Any]:
     ts = datetime.now().strftime("%Y%m%d_%H%M")
     clean_prefix = "".join(c if c.isalnum() else "_" for c in label.lower()).strip("_")
 
+    exports_dir = Path(__file__).resolve().parent.parent.parent / "exports"
+    html_filename = f"executive_analytics_report_{clean_prefix}_{ts}.html"
+    excel_filename = f"analytical_workbook_{clean_prefix}_{ts}.xlsx"
+    md_filename = f"executive_briefing_{clean_prefix}_{ts}.md"
+    csv_filename = f"dataset_{clean_prefix}_{ts}.csv"
+
+    html_path = exports_dir / html_filename
+    excel_path = exports_dir / excel_filename
+    md_path = exports_dir / md_filename
+    csv_path = exports_dir / csv_filename
+
+    if _should_persist_exports_to_disk():
+        exports_dir.mkdir(exist_ok=True, parents=True)
+        try:
+            html_path.write_text(html_report, encoding="utf-8")
+            excel_path.write_bytes(excel_bytes)
+            md_path.write_text(md_report, encoding="utf-8")
+            csv_path.write_bytes(csv_bytes)
+        except Exception as e:
+            logger.warning(f"Could not auto-save export files to disk: {e}")
+
+    html_bytes = html_report.encode("utf-8")
+    md_bytes = md_report.encode("utf-8")
+
+    _GLOBAL_EXPORT_CACHE[("html", cache_key)] = html_bytes
+    _GLOBAL_EXPORT_CACHE[("excel", cache_key)] = excel_bytes
+    _GLOBAL_EXPORT_CACHE[("md", cache_key)] = md_bytes
+    _GLOBAL_EXPORT_CACHE[("csv", cache_key)] = csv_bytes
+
     reports_suite = {
         "html_report": html_report,
         "excel_bytes": excel_bytes,
         "md_report": md_report,
         "csv_bytes": csv_bytes,
-        "html_filename": f"executive_analytics_report_{clean_prefix}_{ts}.html",
-        "excel_filename": f"analytical_workbook_{clean_prefix}_{ts}.xlsx",
-        "md_filename": f"executive_briefing_{clean_prefix}_{ts}.md",
-        "csv_filename": f"dataset_{clean_prefix}_{ts}.csv",
+        "html_filename": html_filename,
+        "excel_filename": excel_filename,
+        "md_filename": md_filename,
+        "csv_filename": csv_filename,
+        "html_path": str(html_path),
+        "excel_path": str(excel_path),
+        "md_path": str(md_path),
+        "csv_path": str(csv_path),
+        "b64_html": base64.b64encode(html_bytes).decode("utf-8"),
+        "b64_excel": base64.b64encode(excel_bytes).decode("utf-8"),
+        "b64_md": base64.b64encode(md_bytes).decode("utf-8"),
+        "b64_csv": base64.b64encode(csv_bytes).decode("utf-8"),
     }
 
     if state is None:
         _DEFAULT_DEMO_REPORTS_CACHE = reports_suite
 
     if _is_streamlit_running():
-        st.session_state["_cached_active_reports"] = reports_suite
-        st.session_state["_cached_active_reports_key"] = cache_key
+        try:
+            st.session_state["_cached_active_reports"] = reports_suite
+            st.session_state["_cached_active_reports_key"] = cache_key
+            st.session_state["_cached_export_html"] = html_bytes
+            st.session_state["_cached_export_html_key"] = cache_key
+            st.session_state["_cached_export_excel"] = excel_bytes
+            st.session_state["_cached_export_excel_key"] = cache_key
+            st.session_state["_cached_export_md"] = md_bytes
+            st.session_state["_cached_export_md_key"] = cache_key
+            st.session_state["_cached_export_csv"] = csv_bytes
+            st.session_state["_cached_export_csv_key"] = cache_key
+        except Exception:
+            pass
 
     return reports_suite
+
+
+def render_download_panel(
+    reports: Optional[Dict[str, Any]] = None,
+    key_prefix: str = "dl",
+    show_header: bool = True,
+):
+    """
+    Render a 4-column export suite providing both Streamlit download buttons
+    AND direct base64 download links, plus the auto-saved disk file path.
+    Builds exports lazily on demand when reports is None.
+    """
+    active_state = get_active_dataset_state()
+
+    if show_header:
+        st.markdown("### 📥 Download Generated Dashboard & Reports")
+        st.caption("Export the complete findings in 4 enterprise formats. Instant on-demand generation:")
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    # HTML Executive Report
+    with col1:
+        html_fn = (
+            reports["html_filename"]
+            if reports and "html_filename" in reports
+            else get_active_export_filename("html", state=active_state)
+        )
+        html_data = (
+            (reports["html_report"].encode("utf-8") if isinstance(reports["html_report"], str) else reports["html_report"])
+            if reports and "html_report" in reports
+            else (lambda s=active_state: get_active_export_data("html", state=s))
+        )
+        st.download_button(
+            label="📄 Executive Report (HTML/PDF)",
+            data=html_data,
+            file_name=html_fn,
+            mime="text/html",
+            type="primary",
+            key=f"{key_prefix}_btn_html",
+            use_container_width=True,
+        )
+        cached_h = reports.get("b64_html") if reports else None
+        if not cached_h:
+            raw_c = get_cached_export("html", state=active_state)
+            if raw_c:
+                raw_bytes = raw_c if isinstance(raw_c, bytes) else raw_c.encode("utf-8")
+                cached_h = base64.b64encode(raw_bytes).decode("utf-8")
+        if cached_h:
+            st.markdown(
+                f'<div style="text-align:center; margin-top:4px;"><a href="data:text/html;charset=utf-8;base64,{cached_h}" download="{html_fn}" style="font-size:0.75rem; color:#2563eb; text-decoration:underline;">⬇️ Direct Browser Download</a></div>',
+                unsafe_allow_html=True,
+            )
+        st.caption("🖨️ *Printable: Ctrl+P to save as PDF.*")
+
+    # Excel Analytical Workbook
+    with col2:
+        excel_fn = (
+            reports["excel_filename"]
+            if reports and "excel_filename" in reports
+            else get_active_export_filename("excel", state=active_state)
+        )
+        excel_data = (
+            reports["excel_bytes"]
+            if reports and "excel_bytes" in reports
+            else (lambda s=active_state: get_active_export_data("excel", state=s))
+        )
+        st.download_button(
+            label="📊 Multi-Tab Excel (.xlsx)",
+            data=excel_data,
+            file_name=excel_fn,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=f"{key_prefix}_btn_excel",
+            use_container_width=True,
+        )
+        cached_x = reports.get("b64_excel") if reports else None
+        if not cached_x:
+            raw_c = get_cached_export("excel", state=active_state)
+            if raw_c:
+                raw_bytes = raw_c if isinstance(raw_c, bytes) else raw_c.encode("utf-8")
+                cached_x = base64.b64encode(raw_bytes).decode("utf-8")
+        if cached_x:
+            st.markdown(
+                f'<div style="text-align:center; margin-top:4px;"><a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{cached_x}" download="{excel_fn}" style="font-size:0.75rem; color:#2563eb; text-decoration:underline;">⬇️ Direct Browser Download</a></div>',
+                unsafe_allow_html=True,
+            )
+        st.caption("📈 *Multi-sheet workbook: Summary, Trends, RFM, etc.*")
+
+    # Markdown Briefing
+    with col3:
+        md_fn = (
+            reports["md_filename"]
+            if reports and "md_filename" in reports
+            else get_active_export_filename("md", state=active_state)
+        )
+        md_data = (
+            (reports["md_report"].encode("utf-8") if isinstance(reports["md_report"], str) else reports["md_report"])
+            if reports and "md_report" in reports
+            else (lambda s=active_state: get_active_export_data("md", state=s))
+        )
+        st.download_button(
+            label="📝 Executive Briefing (.md)",
+            data=md_data,
+            file_name=md_fn,
+            mime="text/markdown",
+            key=f"{key_prefix}_btn_md",
+            use_container_width=True,
+        )
+        cached_m = reports.get("b64_md") if reports else None
+        if not cached_m:
+            raw_c = get_cached_export("md", state=active_state)
+            if raw_c:
+                raw_bytes = raw_c if isinstance(raw_c, bytes) else raw_c.encode("utf-8")
+                cached_m = base64.b64encode(raw_bytes).decode("utf-8")
+        if cached_m:
+            st.markdown(
+                f'<div style="text-align:center; margin-top:4px;"><a href="data:text/markdown;charset=utf-8;base64,{cached_m}" download="{md_fn}" style="font-size:0.75rem; color:#2563eb; text-decoration:underline;">⬇️ Direct Browser Download</a></div>',
+                unsafe_allow_html=True,
+            )
+        st.caption("📋 *Formatted KPI markdown tables.*")
+
+    # CSV Dataset
+    with col4:
+        csv_fn = (
+            reports["csv_filename"]
+            if reports and "csv_filename" in reports
+            else get_active_export_filename("csv", state=active_state)
+        )
+        csv_data = (
+            reports["csv_bytes"]
+            if reports and "csv_bytes" in reports
+            else (lambda s=active_state: get_active_export_data("csv", state=s))
+        )
+        st.download_button(
+            label="📁 Dataset (.csv)",
+            data=csv_data,
+            file_name=csv_fn,
+            mime="text/csv",
+            key=f"{key_prefix}_btn_csv",
+            use_container_width=True,
+        )
+        cached_c = reports.get("b64_csv") if reports else None
+        if not cached_c:
+            raw_c = get_cached_export("csv", state=active_state)
+            if raw_c:
+                raw_bytes = raw_c if isinstance(raw_c, bytes) else raw_c.encode("utf-8")
+                cached_c = base64.b64encode(raw_bytes).decode("utf-8")
+        if cached_c:
+            st.markdown(
+                f'<div style="text-align:center; margin-top:4px;"><a href="data:text/csv;charset=utf-8;base64,{cached_c}" download="{csv_fn}" style="font-size:0.75rem; color:#2563eb; text-decoration:underline;">⬇️ Direct Browser Download</a></div>',
+                unsafe_allow_html=True,
+            )
+        st.caption("💾 *Complete analytical table.*")
+
+    if reports and reports.get("html_path") and "html_filename" in reports:
+        st.info(f"💾 **Auto-Saved to Project Disk:** Reports are automatically saved to `exports/{reports['html_filename']}` — open directly in any browser or Excel.")
+
+
+def _demo_counts_text() -> str:
+    c = get_default_demo_summary()
+    return (f"<strong>{c['transactions']:,}</strong> transactions • <strong>{c['customers']:,}</strong> customers • "
+            f"<strong>{c['products']:,}</strong> products • <strong>{c['reviews']:,}</strong> reviews")
 
 
 def render_global_active_dataset_banner(page_id: str = "banner"):
@@ -756,10 +1021,10 @@ def render_global_active_dataset_banner(page_id: str = "banner"):
     state = get_active_dataset_state()
 
     if state is not None:
-        d_name = state["dataset_name"]
-        rows = state["row_count"]
-        cols = state["col_count"]
-        ts = state["timestamp"]
+        d_name = html.escape(str(state["dataset_name"]))
+        rows = int(state["row_count"])
+        cols = int(state["col_count"])
+        ts = html.escape(str(state["timestamp"]))
 
         st.markdown(
             f"""
@@ -780,13 +1045,13 @@ def render_global_active_dataset_banner(page_id: str = "banner"):
         )
     else:
         st.markdown(
-            """
+            f"""
             <div style="background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); border: 1px solid #cbd5e1; border-left: 5px solid #3b82f6; border-radius: 8px; padding: 10px 16px; margin-bottom: 16px;">
                 <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;">
                     <div>
                         <strong style="color: #1e293b; font-size: 0.92rem;">🏬 Active Platform Dataset: Default E-Commerce Demo Store</strong>
                         <div style="color: #64748b; font-size: 0.78rem; margin-top: 2px;">
-                            <span>📊 <strong>1,000</strong> transactions • <strong>200</strong> customers • <strong>50</strong> products • <strong>400</strong> reviews</span> • 
+                            <span>📊 {_demo_counts_text()}</span> • 
                             <span>⚡ All analytical models synchronized</span>
                         </div>
                     </div>
@@ -798,54 +1063,7 @@ def render_global_active_dataset_banner(page_id: str = "banner"):
 
     with st.expander("📥 1-Click Download Entire Dashboard Report & Data", expanded=False):
         st.caption("Export the complete executive intelligence findings for the currently active dataset in 4 enterprise formats:")
-        d_col1, d_col2, d_col3, d_col4 = st.columns(4)
-
-        reports = generate_active_dashboard_reports()
-
-        with d_col1:
-            st.download_button(
-                label="📄 Executive Report (HTML/PDF)",
-                data=reports["html_report"].encode("utf-8"),
-                file_name=reports["html_filename"],
-                mime="text/html",
-                type="primary",
-                key=f"{page_id}_dl_html",
-                width="stretch",
-            )
-            st.caption("🖨️ *Printable: Ctrl+P to save as PDF.*")
-
-        with d_col2:
-            st.download_button(
-                label="📊 Multi-Tab Excel (.xlsx)",
-                data=reports["excel_bytes"],
-                file_name=reports["excel_filename"],
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key=f"{page_id}_dl_excel",
-                width="stretch",
-            )
-            st.caption("📈 *5 sheets: Summary, Trends, RFM, etc.*")
-
-        with d_col3:
-            st.download_button(
-                label="📝 Executive Briefing (.md)",
-                data=reports["md_report"].encode("utf-8"),
-                file_name=reports["md_filename"],
-                mime="text/markdown",
-                key=f"{page_id}_dl_md",
-                width="stretch",
-            )
-            st.caption("📋 *Formatted KPI markdown tables.*")
-
-        with d_col4:
-            st.download_button(
-                label="📁 Dataset (.csv)",
-                data=reports["csv_bytes"],
-                file_name=reports["csv_filename"],
-                mime="text/csv",
-                key=f"{page_id}_dl_csv",
-                width="stretch",
-            )
-            st.caption("💾 *Complete analytical table.*")
+        render_download_panel(key_prefix=f"{page_id}_banner", show_header=False)
 
         if state is not None:
             c_btn1, c_btn2 = st.columns([1, 1])

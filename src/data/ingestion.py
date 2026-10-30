@@ -553,7 +553,10 @@ def generate_interactions(
     inter_idx = 1
 
     # 1. Purchase flow interactions linked to actual transactions
-    sample_txns = transactions_df.sample(n=min(len(transactions_df), int(n_interactions * 0.40)), random_state=RANDOM_SEED)
+    # Each purchase flow emits 4 events (view, click, cart, purchase). Choose enough flows to use
+    # about 40% of the configured interaction budget, so the total stays at n_interactions.
+    n_flows = min(len(transactions_df), int(n_interactions * 0.40) // 4)
+    sample_txns = transactions_df.sample(n=n_flows, random_state=RANDOM_SEED)
     for _, row in sample_txns.iterrows():
         t_dt = datetime.strptime(row["transaction_date"], "%Y-%m-%d %H:%M:%S")
         sess_id = f"SESS_{row['customer_id']}_{t_dt.strftime('%Y%m%d%H')}"
@@ -599,6 +602,8 @@ def generate_interactions(
 
     df = pd.DataFrame(records)
     df = df.sort_values("timestamp").reset_index(drop=True)
+    if len(df) != n_interactions:
+        logger.warning(f"Generated {len(df)} interactions; configured target was {n_interactions}.")
     logger.info(f"Generated {len(df)} interaction sequence records.")
     return df
 
@@ -611,7 +616,7 @@ def inject_controlled_anomalies(dataset: Dict[str, pd.DataFrame]) -> Dict[str, p
     logger.info("Injecting controlled data quality anomalies into raw tables...")
     raw_data = {k: v.copy() for k, v in dataset.items()}
 
-    # 1. Null values in non-critical columns (customers.age, transactions.payment_method)
+    # 1. Null values in a non-critical column (customers.age)
     cust = raw_data["customers"]
     null_idx = cust.sample(frac=0.015, random_state=RANDOM_SEED).index
     cust.loc[null_idx, "age"] = np.nan

@@ -3,7 +3,7 @@ src/analytics/business_metrics.py
 High-level executive KPIs, financial metrics, time trends, category distributions,
 and simulated recommendation business attribution metrics.
 """
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 import pandas as pd
 
 from src.utils.logging import get_logger
@@ -106,30 +106,23 @@ def calculate_category_performance(
     return cat_perf.sort_values("revenue", ascending=False).reset_index(drop=True)
 
 
-def calculate_simulated_recommendation_business_kpis(
-    interactions_df: pd.DataFrame,
-    transactions_df: pd.DataFrame,
-) -> Dict[str, Any]:
+def calculate_mom_growth(monthly_df: pd.DataFrame) -> Optional[Dict[str, Any]]:
     """
-    Simulate recommendation business activity metrics based on offline interaction conversion rates.
-    Explicitly documented as offline evaluation simulation.
+    Month-over-month revenue change between the last two months in a monthly trend table.
+    Returns None when fewer than two months of data exist, so no growth figure is ever invented.
     """
-    # Total recommendation exposures/views simulated
-    views_count = int((interactions_df["interaction_type"] == "view").sum())
-    clicks_count = int((interactions_df["interaction_type"] == "click").sum())
-    purchases_count = int((interactions_df["interaction_type"] == "purchase").sum())
-
-    ctr = round((clicks_count / max(views_count, 1)) * 100, 2)
-    conversion_rate = round((purchases_count / max(clicks_count, 1)) * 100, 2)
-
-    # Attributable revenue proxy (e.g. 25% of purchases associated with recommendations)
-    simulated_rec_revenue = round(float(transactions_df["total_amount"].sum() * 0.28), 2)
-
+    if monthly_df is None or monthly_df.empty or len(monthly_df) < 2:
+        return None
+    ordered = monthly_df.sort_values("year_month").reset_index(drop=True)
+    latest, previous = ordered.iloc[-1], ordered.iloc[-2]
+    prev_rev = float(previous["total_revenue"])
+    if prev_rev <= 0:
+        return None
+    change_pct = (float(latest["total_revenue"]) - prev_rev) / prev_rev * 100
     return {
-        "metric_type": "Offline Simulated Business Metrics",
-        "recommendation_impressions": views_count,
-        "recommendation_clicks": clicks_count,
-        "recommendation_ctr_pct": ctr,
-        "recommendation_conversion_pct": conversion_rate,
-        "recommendation_attributed_revenue": simulated_rec_revenue,
+        "latest_month": str(latest["year_month"]),
+        "previous_month": str(previous["year_month"]),
+        "change_pct": round(change_pct, 1),
     }
+
+

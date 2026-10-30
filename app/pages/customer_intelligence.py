@@ -6,7 +6,8 @@ ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-import streamlit as st
+import plotly.express as px  # noqa: E402
+import streamlit as st  # noqa: E402
 
 st.set_page_config(
     page_title="Customer Intelligence • RFM Segmentation",
@@ -14,17 +15,25 @@ st.set_page_config(
     layout="wide",
 )
 
-import plotly.express as px
+from app.components.cards import render_metric_card  # noqa: E402
+from app.components.styles import apply_custom_css, render_sidebar_status  # noqa: E402
+from app.services.data_loader import get_cached_analytics_bundles  # noqa: E402
+from src.utils.formatting import fmt_money, fmt_num, fmt_pct, is_missing  # noqa: E402
 
-from app.components.cards import render_metric_card
-from app.components.styles import apply_custom_css, render_sidebar_status
-from app.services.data_loader import get_cached_analytics_bundles
+
+def _value(row, column):
+    """Return a column from a row, or None when the active dataset does not provide it."""
+    return row[column] if column in row.index else None
+
+
+def _table_for_display(df):
+    return df.astype(object).where(df.notna(), "N/A")
 
 
 def render_customer_intelligence_page():
     """Render Customer Intelligence & RFM page."""
     st.markdown("## 👥 Customer Intelligence & Behavioral Segmentation")
-    st.caption("Recency, Frequency, and Monetary (RFM) analytics and 360-degree customer profiling.")
+    st.caption("Recency, Frequency, and Monetary (RFM) analytics and customer profiling.")
 
     from app.services.active_dataset_manager import render_global_active_dataset_banner
     render_global_active_dataset_banner(page_id="cust_intel")
@@ -33,35 +42,39 @@ def render_customer_intelligence_page():
     cust_profiles = bundles["cust_profiles"]
     seg_summary = bundles["seg_summary"]
 
-    # Segment KPI Summary
+    if cust_profiles.empty:
+        st.info(
+            "This dataset has no customer-level records. Map a **Customer ID** column, together with a "
+            "**Date** and **Revenue** column, in the Custom Data Analyzer to enable RFM segmentation."
+        )
+        return
+
     st.markdown("##### 📊 Segment Financial & Retention Matrix")
     st.dataframe(
-        seg_summary.rename(
-            columns={
-                "customer_segment": "Customer Segment",
-                "customer_count": "Customers",
-                "total_revenue": "Total Spend ($)",
-                "avg_revenue_per_customer": "Spend/Customer ($)",
-                "avg_orders": "Avg Orders",
-                "avg_aov": "AOV ($)",
-                "avg_return_rate": "Return Rate %",
-            }
-        ),
+        _table_for_display(seg_summary.rename(columns={
+            "customer_segment": "Customer Segment",
+            "customer_count": "Customers",
+            "total_revenue": "Total Spend ($)",
+            "avg_revenue_per_customer": "Spend/Customer ($)",
+            "avg_orders": "Avg Orders",
+            "avg_aov": "AOV ($)",
+            "avg_return_rate": "Return Rate %",
+        })),
         width="stretch",
         hide_index=True,
     )
 
     st.markdown("---")
-
-    # RFM Scatter Visualization
     st.markdown("##### 🎯 Customer Value Mapping (Monetary Spend vs Order Frequency)")
+    plot_df = cust_profiles.dropna(subset=["total_orders", "net_spend"])
+    hover = [c for c in ["customer_id", "customer_segment", "city", "return_rate"] if c in plot_df.columns]
     fig = px.scatter(
-        cust_profiles.sample(min(len(cust_profiles), 800), random_state=42),
+        plot_df.sample(min(len(plot_df), 800), random_state=42),
         x="total_orders",
         y="net_spend",
         color="rfm_segment",
-        size="average_order_value",
-        hover_data=["customer_id", "customer_segment", "city", "return_rate"],
+        size="average_order_value" if "average_order_value" in plot_df.columns else None,
+        hover_data=hover,
         labels={"total_orders": "Total Orders Placed", "net_spend": "Net Lifetime Spend ($)"},
         template="plotly_white",
         height=380,
@@ -69,33 +82,43 @@ def render_customer_intelligence_page():
     st.plotly_chart(fig, width="stretch", key="cust_intel_rfm_scatter")
 
     st.markdown("---")
-
-    # Customer 360 Drill-Down Search
     st.markdown("##### 🔍 Customer 360 Profile Drill-Down")
     selected_cid = st.selectbox(
         "Select or search Customer ID:",
         options=cust_profiles["customer_id"].tolist()[:100],
         index=0,
     )
-
-    cust_row = cust_profiles[cust_profiles["customer_id"] == selected_cid].iloc[0]
+    row = cust_profiles[cust_profiles["customer_id"] == selected_cid].iloc[0]
 
     c1, c2, c3, c4 = st.columns(4)
+    membership = _value(row, "membership_type")
     with c1:
-        render_metric_card("Customer", str(cust_row["customer_id"]), f"{cust_row['membership_type']} Member")
+        render_metric_card("Customer", str(row["customer_id"]),
+                           f"{membership} Member" if not is_missing(membership) else "Membership not in dataset")
     with c2:
-        render_metric_card("Segment", str(cust_row["customer_segment"]), f"RFM: {cust_row['rfm_score']}")
+        render_metric_card("Segment", str(row["customer_segment"]),
+                           f"RFM: {row['rfm_score']}" if not is_missing(_value(row, "rfm_score")) else None)
     with c3:
-        render_metric_card("Net Spend", f"${cust_row['net_spend']:,.2f}", f"{cust_row['total_orders']} Orders")
+        render_metric_card("Net Spend", fmt_money(row["net_spend"]), f"{fmt_num(row['total_orders'])} Orders")
     with c4:
-        render_metric_card("Return Rate", f"{cust_row['return_rate']:.1f}%", f"{cust_row['returned_orders']} Returns", delta_positive=cust_row['return_rate'] < 10)
+        rate = _value(row, "return_rate")
+        render_metric_card("Return Rate", fmt_pct(rate),
+                           f"{fmt_num(_value(row, 'returned_orders'))} Returns" if rate is not None else "Return status not in dataset",
+                           delta_positive=(rate is None or rate < 10))
 
-    st.markdown(
-        f"**Demographics:** Age {cust_row['age']} • Gender: {cust_row['gender']} • Location: {cust_row['city']}, {cust_row['country']} • Preferred Category: **{cust_row['preferred_category']}**"
-    )
+    demo_bits = []
+    for label, column in [("Age", "age"), ("Gender", "gender"), ("Location", "city"), ("Country", "country"),
+                          ("Preferred Category", "preferred_category")]:
+        value = _value(row, column)
+        if not is_missing(value):
+            demo_bits.append(f"{label}: **{value}**")
+    if demo_bits:
+        st.markdown("**Profile:** " + " • ".join(demo_bits))
+    recency = _value(row, "recency_days")
+    if not is_missing(recency):
+        st.markdown(f"**Days since last order:** {fmt_num(recency)}")
 
 
 apply_custom_css()
 render_sidebar_status()
 render_customer_intelligence_page()
-

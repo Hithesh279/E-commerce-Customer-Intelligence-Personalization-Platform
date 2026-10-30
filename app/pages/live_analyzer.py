@@ -1,3 +1,4 @@
+import html
 import sys
 from pathlib import Path
 
@@ -88,12 +89,14 @@ def render_live_analyzer_page():
             cols = st.columns(len(aspects))
             for i, asp in enumerate(aspects):
                 asp_color = "#10b981" if asp["sentiment"] == "Positive" else ("#ef4444" if asp["sentiment"] == "Negative" else "#f59e0b")
+                asp_name = html.escape(str(asp["aspect"]))
+                asp_sent = html.escape(str(asp["sentiment"]))
                 with cols[i]:
                     st.markdown(
                         f"""
                         <div style="background:#f8fafc; border:1px solid #e2e8f0; border-top:3px solid {asp_color}; border-radius:6px; padding:12px; height:120px;">
-                            <strong style="text-transform:capitalize; font-size:0.95rem;">{asp['aspect']}</strong><br>
-                            <span style="font-size:0.85rem; font-weight:600; color:{asp_color};">{asp['sentiment']}</span><br>
+                            <strong style="text-transform:capitalize; font-size:0.95rem;">{asp_name}</strong><br>
+                            <span style="font-size:0.85rem; font-weight:600; color:{asp_color};">{asp_sent}</span><br>
                             <span style="font-size:0.75rem; color:#64748b;">Score: {asp['sentiment_score']:+.2f}</span>
                         </div>
                         """,
@@ -106,4 +109,3 @@ def render_live_analyzer_page():
 apply_custom_css()
 render_sidebar_status()
 render_live_analyzer_page()
-

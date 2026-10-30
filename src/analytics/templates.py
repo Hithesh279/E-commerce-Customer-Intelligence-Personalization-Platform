@@ -380,7 +380,7 @@ def generate_blank_template_csv(template_id: str) -> str:
 
 def load_sample_template(template_id: str, n_records: int = 120) -> pd.DataFrame:
     """Generate rich, realistic synthetic data matching the chosen business template schema."""
-    random.seed(42)
+    rng = random.Random(42)
     now = datetime(2026, 3, 15)
 
     if template_id == "product_reviews":
@@ -411,12 +411,12 @@ def load_sample_template(template_id: str, n_records: int = 120) -> pd.DataFrame
 
         rows = []
         for i in range(n_records):
-            prod, _ = random.choice(products)
-            rev_text, base_rating = random.choice(sample_reviews)
-            rating = max(1, min(5, base_rating + random.choice([-1, 0, 0, 1])))
-            days_ago = random.randint(1, 180)
+            prod, _ = rng.choice(products)
+            rev_text, base_rating = rng.choice(sample_reviews)
+            rating = max(1, min(5, base_rating + rng.choice([-1, 0, 0, 1])))
+            days_ago = rng.randint(1, 180)
             rev_date = (now - timedelta(days=days_ago)).strftime("%Y-%m-%d")
-            verified = "Yes" if random.random() > 0.15 else "No"
+            verified = "Yes" if rng.random() > 0.15 else "No"
 
             rows.append({
                 "review_id": f"REV-{1000 + i}",
@@ -441,13 +441,13 @@ def load_sample_template(template_id: str, n_records: int = 120) -> pd.DataFrame
         ]
         rows = []
         for i in range(n_records):
-            prod, cat, unit_price = random.choice(catalog)
-            qty = random.choices([1, 2, 3, 4], weights=[0.65, 0.22, 0.09, 0.04])[0]
+            prod, cat, unit_price = rng.choice(catalog)
+            qty = rng.choices([1, 2, 3, 4], weights=[0.65, 0.22, 0.09, 0.04])[0]
             total_amt = round(qty * unit_price, 2)
-            days_ago = random.randint(1, 180)
+            days_ago = rng.randint(1, 180)
             order_date = (now - timedelta(days=days_ago)).strftime("%Y-%m-%d")
-            cust_id = f"CUST-{random.randint(100, 160):04d}"
-            is_returned = random.random() < 0.06
+            cust_id = f"CUST-{rng.randint(100, 160):04d}"
+            is_returned = rng.random() < 0.06
             status = "Returned" if is_returned else "Completed"
 
             rows.append({
@@ -469,13 +469,13 @@ def load_sample_template(template_id: str, n_records: int = 120) -> pd.DataFrame
 
         rows = []
         for i in range(n_records):
-            name = f"{random.choice(first_names)} {random.choice(last_names)}"
-            signup_days = random.randint(100, 800)
+            name = f"{rng.choice(first_names)} {rng.choice(last_names)}"
+            signup_days = rng.randint(100, 800)
             signup_date = (now - timedelta(days=signup_days)).strftime("%Y-%m-%d")
-            total_orders = max(1, int(random.expovariate(1 / 7)))
-            avg_order = random.uniform(40.0, 220.0)
+            total_orders = max(1, int(rng.expovariate(1 / 7)))
+            avg_order = rng.uniform(40.0, 220.0)
             lifetime_spend = round(total_orders * avg_order, 2)
-            last_order_days = random.randint(1, min(signup_days, 180))
+            last_order_days = rng.randint(1, min(signup_days, 180))
             last_order_date = (now - timedelta(days=last_order_days)).strftime("%Y-%m-%d")
 
             if lifetime_spend > 2500 or total_orders > 15:
@@ -515,9 +515,9 @@ def load_sample_template(template_id: str, n_records: int = 120) -> pd.DataFrame
         for i in range(max(len(sku_items), min(n_records, 60))):
             base_item = sku_items[i % len(sku_items)]
             sku = f"{base_item[0]}-{i // len(sku_items) + 1}" if i >= len(sku_items) else base_item[0]
-            stock = random.randint(5, 250)
-            velocity = random.randint(15, 180)
-            ret_rate = round(random.uniform(1.2, 9.8), 1)
+            stock = rng.randint(5, 250)
+            velocity = rng.randint(15, 180)
+            ret_rate = round(rng.uniform(1.2, 9.8), 1)
 
             rows.append({
                 "sku": sku,
@@ -546,18 +546,18 @@ def load_sample_template(template_id: str, n_records: int = 120) -> pd.DataFrame
         ]
         rows = []
         for i in range(n_records):
-            fb, score, hrs = random.choice(feedback_pool)
-            days_ago = random.randint(1, 90)
+            fb, score, hrs = rng.choice(feedback_pool)
+            days_ago = rng.randint(1, 90)
             tck_date = (now - timedelta(days=days_ago)).strftime("%Y-%m-%d")
-            actual_hrs = round(max(0.5, hrs + random.uniform(-0.8, 1.5)), 1)
-            actual_score = max(1, min(5, score + random.choice([0, 0, -1, 1])))
+            actual_hrs = round(max(0.5, hrs + rng.uniform(-0.8, 1.5)), 1)
+            actual_score = max(1, min(5, score + rng.choice([0, 0, -1, 1])))
 
             rows.append({
                 "ticket_id": f"TCK-{8000 + i}",
                 "ticket_date": tck_date,
-                "customer_id": f"CUST-{random.randint(100, 160):04d}",
-                "channel": random.choice(channels),
-                "priority": random.choice(priorities),
+                "customer_id": f"CUST-{rng.randint(100, 160):04d}",
+                "channel": rng.choice(channels),
+                "priority": rng.choice(priorities),
                 "resolution_time_hrs": actual_hrs,
                 "customer_feedback": fb,
                 "satisfaction_score": actual_score,
@@ -578,15 +578,15 @@ def load_sample_template(template_id: str, n_records: int = 120) -> pd.DataFrame
         ]
         rows = []
         for i in range(n_records):
-            plan_name, fee = random.choice(plans)
-            comment, churn_stat = random.choice(exit_comments)
-            tenure = random.randint(1, 36)
-            signup_days = tenure * 30 + random.randint(1, 25)
+            plan_name, fee = rng.choice(plans)
+            comment, churn_stat = rng.choice(exit_comments)
+            tenure = rng.randint(1, 36)
+            signup_days = tenure * 30 + rng.randint(1, 25)
             signup_date = (now - timedelta(days=signup_days)).strftime("%Y-%m-%d")
 
             rows.append({
                 "subscription_id": f"SUB-{4000 + i}",
-                "customer_id": f"CUST-{random.randint(100, 200):04d}",
+                "customer_id": f"CUST-{rng.randint(100, 200):04d}",
                 "plan_tier": plan_name,
                 "mrr_amount": fee,
                 "signup_date": signup_date,
@@ -609,19 +609,19 @@ def load_sample_template(template_id: str, n_records: int = 120) -> pd.DataFrame
         devices = ["Mobile", "Desktop", "Tablet"]
         rows = []
         for i in range(n_records):
-            val = round(random.uniform(25.0, 350.0), 2)
-            items_cnt = random.randint(1, 6)
-            days_ago = random.randint(1, 90)
+            val = round(rng.uniform(25.0, 350.0), 2)
+            items_cnt = rng.randint(1, 6)
+            days_ago = rng.randint(1, 90)
             s_date = (now - timedelta(days=days_ago)).strftime("%Y-%m-%d")
 
             rows.append({
                 "session_id": f"SES-{7000 + i}",
-                "customer_id": f"CUST-{random.randint(100, 200):04d}",
+                "customer_id": f"CUST-{rng.randint(100, 200):04d}",
                 "cart_value": val,
                 "items_in_cart": items_cnt,
-                "dropoff_stage": random.choice(stages),
-                "abandon_reason": random.choice(reasons),
-                "device": random.choice(devices),
+                "dropoff_stage": rng.choice(stages),
+                "abandon_reason": rng.choice(reasons),
+                "device": rng.choice(devices),
                 "session_date": s_date,
             })
         return pd.DataFrame(rows)
@@ -633,21 +633,21 @@ def load_sample_template(template_id: str, n_records: int = 120) -> pd.DataFrame
         statuses = ["Delivered On-Time", "Delivered On-Time", "Delivered On-Time", "Delayed in Transit", "Out for Delivery"]
         rows = []
         for i in range(n_records):
-            carrier = random.choice(carriers)
-            transit = random.randint(1, 6)
-            cost = round(random.uniform(7.50, 32.00), 2)
-            days_ago = random.randint(1, 120)
+            carrier = rng.choice(carriers)
+            transit = rng.randint(1, 6)
+            cost = round(rng.uniform(7.50, 32.00), 2)
+            days_ago = rng.randint(1, 120)
             d_date = (now - timedelta(days=days_ago)).strftime("%Y-%m-%d")
 
             rows.append({
                 "tracking_id": f"TRK-{9000 + i}",
                 "order_id": f"ORD-{5000 + i}",
                 "carrier": carrier,
-                "origin_warehouse": random.choice(warehouses),
-                "destination_city": random.choice(cities),
+                "origin_warehouse": rng.choice(warehouses),
+                "destination_city": rng.choice(cities),
                 "shipping_cost": cost,
                 "transit_days": transit,
-                "delivery_status": random.choice(statuses),
+                "delivery_status": rng.choice(statuses),
                 "dispatch_date": d_date,
             })
         return pd.DataFrame(rows)
@@ -670,19 +670,19 @@ def load_sample_template(template_id: str, n_records: int = 120) -> pd.DataFrame
         dispositions = ["Restocked (A-Grade)", "Restocked (Open Box)", "Scrapped / Damaged"]
         rows = []
         for i in range(n_records):
-            sku, name, cat, price = random.choice(prods)
-            days_ago = random.randint(1, 90)
+            sku, name, cat, price = rng.choice(prods)
+            days_ago = rng.randint(1, 90)
             r_date = (now - timedelta(days=days_ago)).strftime("%Y-%m-%d")
 
             rows.append({
                 "return_id": f"RET-{3000 + i}",
-                "order_id": f"ORD-{5000 + random.randint(1, 300)}",
+                "order_id": f"ORD-{5000 + rng.randint(1, 300)}",
                 "sku": sku,
                 "product_name": name,
                 "category": cat,
-                "return_reason": random.choice(reasons),
+                "return_reason": rng.choice(reasons),
                 "refund_amount": price,
-                "restockable": random.choice(dispositions),
+                "restockable": rng.choice(dispositions),
                 "return_date": r_date,
             })
         return pd.DataFrame(rows)
@@ -699,17 +699,17 @@ def load_sample_template(template_id: str, n_records: int = 120) -> pd.DataFrame
         ]
         rows = []
         for i in range(n_records):
-            ch = random.choice(channels)
-            c_name = random.choice(campaign_names)
-            spend = round(random.uniform(500.0, 5000.0), 2)
-            cpc = random.uniform(0.40, 2.50)
+            ch = rng.choice(channels)
+            c_name = rng.choice(campaign_names)
+            spend = round(rng.uniform(500.0, 5000.0), 2)
+            cpc = rng.uniform(0.40, 2.50)
             clicks = int(spend / cpc)
-            impr = int(clicks * random.uniform(20.0, 50.0))
-            conv_rate = random.uniform(0.02, 0.08)
+            impr = int(clicks * rng.uniform(20.0, 50.0))
+            conv_rate = rng.uniform(0.02, 0.08)
             conv = max(1, int(clicks * conv_rate))
-            rev_driven = conv * random.uniform(65.0, 180.0)
+            rev_driven = conv * rng.uniform(65.0, 180.0)
             roas = round(rev_driven / max(1.0, spend), 2)
-            days_ago = random.randint(1, 120)
+            days_ago = rng.randint(1, 120)
             c_date = (now - timedelta(days=days_ago)).strftime("%Y-%m-%d")
 
             rows.append({
@@ -737,11 +737,11 @@ def load_sample_template(template_id: str, n_records: int = 120) -> pd.DataFrame
         months = ["2025-11", "2025-12", "2026-01", "2026-02", "2026-03"]
         rows = []
         for i in range(n_records):
-            p_code, d_type, d_val = random.choice(promos)
-            redemptions = random.randint(50, 800)
-            gross = round(redemptions * random.uniform(55.0, 140.0), 2)
+            p_code, d_type, d_val = rng.choice(promos)
+            redemptions = rng.randint(50, 800)
+            gross = round(redemptions * rng.uniform(55.0, 140.0), 2)
             cost = round(gross * (d_val / 100.0) if "Percentage" in d_type else redemptions * d_val, 2)
-            margin = round(random.uniform(18.0, 38.0), 1)
+            margin = round(rng.uniform(18.0, 38.0), 1)
 
             rows.append({
                 "promo_code": f"{p_code}-{i+1}",
@@ -751,7 +751,7 @@ def load_sample_template(template_id: str, n_records: int = 120) -> pd.DataFrame
                 "gross_revenue_driven": gross,
                 "discount_cost": cost,
                 "net_margin_pct": margin,
-                "promo_month": random.choice(months),
+                "promo_month": rng.choice(months),
             })
         return pd.DataFrame(rows)
 
@@ -761,21 +761,21 @@ def load_sample_template(template_id: str, n_records: int = 120) -> pd.DataFrame
         devices = ["Mobile", "Desktop", "Tablet"]
         rows = []
         for i in range(n_records):
-            source = random.choice(sources)
-            pages = random.randint(1, 12)
-            duration = random.randint(15, 600)
-            is_conv = "Yes" if (random.random() < 0.08 and pages > 3) else "No"
-            days_ago = random.randint(1, 90)
+            source = rng.choice(sources)
+            pages = rng.randint(1, 12)
+            duration = rng.randint(15, 600)
+            is_conv = "Yes" if (rng.random() < 0.08 and pages > 3) else "No"
+            days_ago = rng.randint(1, 90)
             s_date = (now - timedelta(days=days_ago)).strftime("%Y-%m-%d")
 
             rows.append({
                 "session_id": f"WEB-{8000 + i}",
-                "visitor_id": f"VIS-{random.randint(1000, 3000)}",
+                "visitor_id": f"VIS-{rng.randint(1000, 3000)}",
                 "traffic_source": source,
-                "landing_page": random.choice(landing_pages),
+                "landing_page": rng.choice(landing_pages),
                 "pages_viewed": pages,
                 "session_duration_sec": duration,
-                "device_type": random.choice(devices),
+                "device_type": rng.choice(devices),
                 "converted": is_conv,
                 "session_date": s_date,
             })

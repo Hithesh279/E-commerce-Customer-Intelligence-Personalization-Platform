@@ -142,8 +142,9 @@ def test_sentiment_only_dataset_modality():
     # Must reflect VoC modality without invented transaction revenue
     assert bundles["has_transactions"] is False
     assert bundles["has_reviews"] is True
-    assert kpis["total_net_revenue"] == 0.0
-    assert kpis["total_orders"] == 100
+    # No revenue or order columns exist, so these must be unknown rather than 0 or the review count.
+    assert kpis["total_net_revenue"] is None
+    assert kpis["total_orders"] is None
     assert "net_sentiment_score" in kpis
     assert kpis["positive_sentiment_pct"] == 50.0
     assert kpis["negative_sentiment_pct"] == 50.0
@@ -152,5 +153,9 @@ def test_sentiment_only_dataset_modality():
     # Ensure required columns for other pages are present
     assert "rfm_segment" in bundles["cust_profiles"].columns
     assert "rfm_score" in bundles["cust_profiles"].columns
+    assert bundles["cust_profiles"].empty  # no customer column, so no invented customers
+    assert bundles["prod_perf"].empty      # no product column, so no invented products
+    assert bundles["monthly_trend"].empty  # no date column, so no invented timeline
+    assert bundles["cat_perf"].empty       # no category or revenue, so no invented categories
     assert "product_description" in bundles["prod_perf"].columns
     assert not state["aspects_df"].empty

@@ -46,15 +46,18 @@ def train_sentiment_models(
     Avoids data leakage by fitting vectorizer strictly on training partition.
     """
     ensure_directories()
+    data_source = "caller-provided DataFrame"
     if reviews_df is None:
         from src.utils.config import RAW_DATA_DIR
         rw_path = RAW_DATA_DIR / "real_world_reviews.csv"
         if rw_path.exists():
             reviews_df = pd.read_csv(rw_path)
+            data_source = rw_path.name
             logger.info(f"Loaded {len(reviews_df)} authentic real-world reviews from internet dataset ({rw_path}).")
         else:
             reviews_path = PROCESSED_DATA_DIR / "reviews.csv"
             reviews_df = pd.read_csv(reviews_path)
+            data_source = reviews_path.name
             logger.info(f"Loaded {len(reviews_df)} reviews from {reviews_path}.")
     df = reviews_df.copy()
     df["sentiment"] = df["rating"].apply(assign_sentiment_label)
@@ -131,6 +134,7 @@ def train_sentiment_models(
     logger.info(f"Complement Naive Bayes Accuracy: {cnb_acc:.4f}")
 
     evaluation_results = {
+        "training_data_source": data_source,
         "model_type": "Soft Voting Ensemble (Logistic Regression + MultinomialNB + ComplementNB)",
         "baseline_model": "Multinomial Naive Bayes",
         "train_samples": len(train_df),

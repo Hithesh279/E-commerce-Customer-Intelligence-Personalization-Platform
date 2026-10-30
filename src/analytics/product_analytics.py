@@ -24,16 +24,17 @@ def generate_product_performance_metrics(
     all_txns = transactions_df.copy()
     completed_txns = all_txns[all_txns["return_status"] != "Returned"]
 
-    txn_stats = all_txns.groupby("product_id").agg(
+    txn_stats = all_txns.assign(_returned_qty=all_txns["quantity"].where(all_txns["return_status"] == "Returned", 0)).groupby("product_id").agg(
         total_orders=("transaction_id", "count"),
         units_sold=("quantity", "sum"),
+        returned_units=("_returned_qty", "sum"),
         gross_revenue=("total_amount", "sum"),
-        returned_units=("return_status", lambda s: (s == "Returned").sum()),
+        returned_orders=("return_status", lambda s: int((s == "Returned").sum())),
     ).reset_index()
 
     net_rev = completed_txns.groupby("product_id")["total_amount"].sum().rename("net_revenue").reset_index()
     txn_stats = txn_stats.merge(net_rev, on="product_id", how="left").fillna({"net_revenue": 0.0})
-    txn_stats["return_rate"] = ((txn_stats["returned_units"] / txn_stats["total_orders"].clip(lower=1)) * 100).round(1)
+    txn_stats["return_rate"] = ((txn_stats["returned_orders"] / txn_stats["total_orders"].clip(lower=1)) * 100).round(1)
 
     # 2. Review aggregations
     rev_stats = reviews_df.groupby("product_id").agg(
@@ -54,6 +55,7 @@ def generate_product_performance_metrics(
         "gross_revenue": 0.0,
         "net_revenue": 0.0,
         "returned_units": 0,
+        "returned_orders": 0,
         "return_rate": 0.0,
     })
 

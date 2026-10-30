@@ -5,7 +5,7 @@ from src.analytics.business_metrics import (
     calculate_category_performance,
     calculate_executive_kpis,
     calculate_monthly_revenue_trend,
-    calculate_simulated_recommendation_business_kpis,
+    calculate_mom_growth,
 )
 from src.analytics.customer_analytics import (
     generate_customer_profile_metrics,
@@ -20,5 +20,5 @@ __all__ = [
     "calculate_executive_kpis",
     "calculate_monthly_revenue_trend",
     "calculate_category_performance",
-    "calculate_simulated_recommendation_business_kpis",
+    "calculate_mom_growth",
 ]

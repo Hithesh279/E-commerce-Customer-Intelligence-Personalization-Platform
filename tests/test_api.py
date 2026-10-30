@@ -21,6 +21,15 @@ def test_root_endpoint():
     assert res.json()["status"] == "online"
 
 
+def test_get_executive_kpis():
+    res = client.get("/analytics/kpis")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total_net_revenue"] > 0
+    assert data["total_orders"] == 1000
+    assert data["total_customers"] == 200
+
+
 def test_get_customer_valid():
     res = client.get("/customers/CUST_00001")
     assert res.status_code == 200
@@ -33,6 +42,30 @@ def test_get_customer_valid():
 def test_get_customer_not_found():
     res = client.get("/customers/CUST_NONEXISTENT")
     assert res.status_code == 404
+
+
+def test_get_product_profile_valid():
+    res = client.get("/products/PROD_0001")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["product_id"] == "PROD_0001"
+    assert "net_revenue" in data
+    assert "units_sold" in data
+    assert "is_high_sales_low_sentiment" in data
+
+
+def test_get_product_profile_not_found():
+    res = client.get("/products/PROD_NONEXISTENT")
+    assert res.status_code == 404
+
+
+def test_get_product_sentiment():
+    res = client.get("/products/PROD_0005/sentiment")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["product_id"] == "PROD_0005"
+    assert "average_rating" in data
+    assert "top_aspects" in data
 
 
 def test_get_recommendations_hybrid():

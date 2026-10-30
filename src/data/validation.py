@@ -3,7 +3,7 @@ src/data/validation.py
 Data validation checks for schema conformance, null rates, duplicates,
 referential integrity, and business rule validity.
 """
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 import pandas as pd
 from src.utils.logging import get_logger
 
@@ -81,7 +81,7 @@ def validate_transaction_math(transactions_df: pd.DataFrame, tolerance: float = 
 
 def validate_dataset_collection(dataset: Dict[str, pd.DataFrame]) -> Dict[str, Any]:
     """Run full validation suite across all tables in dataset."""
-    results = {}
+    results: Dict[str, Any] = {}
     for table_name, df in dataset.items():
         validate_schema(table_name, df)
         id_col = f"{table_name[:-1]}_id" if table_name.endswith("s") else f"{table_name}_id"
@@ -92,7 +92,7 @@ def validate_dataset_collection(dataset: Dict[str, pd.DataFrame]) -> Dict[str, A
             "row_count": len(df),
             "columns": list(df.columns),
             "duplicate_ids": dups,
-            "null_counts": df.isnull().sum().to_dict(),
+            "null_counts": {k: int(v) for k, v in df.isnull().sum().to_dict().items()},
         }
 
     # Foreign key checks
@@ -108,6 +108,20 @@ def validate_dataset_collection(dataset: Dict[str, pd.DataFrame]) -> Dict[str, A
         results["fk_reviews_products_orphans"] = check_foreign_keys(
             dataset["reviews"], dataset["products"], "product_id", "product_id", "reviews", "products"
         )
+    if "reviews" in dataset and "customers" in dataset:
+        results["fk_reviews_customers_orphans"] = check_foreign_keys(
+            dataset["reviews"], dataset["customers"], "customer_id", "customer_id", "reviews", "customers"
+        )
+    if "interactions" in dataset and "customers" in dataset:
+        results["fk_interactions_customers_orphans"] = check_foreign_keys(
+            dataset["interactions"], dataset["customers"], "customer_id", "customer_id", "interactions", "customers"
+        )
+    if "interactions" in dataset and "products" in dataset:
+        results["fk_interactions_products_orphans"] = check_foreign_keys(
+            dataset["interactions"], dataset["products"], "product_id", "product_id", "interactions", "products"
+        )
+    if "transactions" in dataset:
+        results["transaction_math_mismatches"] = validate_transaction_math(dataset["transactions"])
 
     logger.info("Dataset validation checks completed successfully.")
     return results

@@ -3,13 +3,11 @@ app/services/inference_service.py
 Cached model loading and inference service for Streamlit application.
 Loads pre-trained artifacts directly without retraining on startup.
 """
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 import joblib
 import pandas as pd
 import streamlit as st
 
-from src.nlp.aspect_extraction import extract_aspect_sentiment_from_text
 from src.nlp.sentiment_predict import SentimentPredictor
 from src.recommendation.hybrid import HybridRecommender
 from src.utils.config import (
@@ -57,12 +55,11 @@ def analyze_review_text(text: str) -> Dict[str, Any]:
     """Analyze a customer review: sentiment, confidence, probabilities, and aspect sentiments."""
     predictor = load_sentiment_predictor()
     sent_res = predictor.predict(text)
-    aspects = extract_aspect_sentiment_from_text(text)
 
     return {
         "text": text,
         "sentiment": sent_res["sentiment"],
         "confidence": sent_res["confidence"],
         "probabilities": sent_res["probabilities"],
-        "aspects": aspects,
+        "aspects": sent_res.get("aspects", []),
     }

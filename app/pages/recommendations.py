@@ -28,6 +28,15 @@ def render_recommendations_page():
     from app.services.active_dataset_manager import render_global_active_dataset_banner
     render_global_active_dataset_banner(page_id="recs")
 
+    from app.services.active_dataset_manager import get_active_dataset_state
+    if get_active_dataset_state() is not None:
+        st.info(
+            "Recommendations are trained on the demo store's purchase and browsing history. "
+            "Uploaded datasets have no behavioral history for these models, so no recommendations are shown. "
+            "Reset to the demo store in the sidebar to use the recommendation engine."
+        )
+        return
+
     bundles = get_cached_analytics_bundles()
     cust_profiles = bundles["cust_profiles"]
     recs_sys = load_recommendation_system()
