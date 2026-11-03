@@ -7,13 +7,14 @@ The SQLite file is always rebuilt from the canonical DDL, so table constraints a
 DATABASE_URL is not used here; it is read only by sql/load_to_postgres.py.
 """
 import sqlite3
+import zipfile
 from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Iterator, Optional
 
 import pandas as pd
 
-from src.utils.config import DATABASE_PATH, POWERBI_DATA_DIR, PROCESSED_DATA_DIR, SQL_DIR, ensure_directories
+from src.utils.config import DATABASE_PATH, POWERBI_DATA_DIR, PROJECT_ROOT, PROCESSED_DATA_DIR, SQL_DIR, ensure_directories
 from src.utils.logging import get_logger
 
 logger = get_logger("db_manager")
@@ -95,11 +96,42 @@ class DatabaseManager:
                     df.to_excel(writer, sheet_name=view_name, index=False)
                     logger.info(f"Exported Power BI view {view_name}: {out_file} ({len(df)} rows)")
         logger.info(f"Exported consolidated Power BI Star Schema workbook: {xlsx_path}")
+        build_powerbi_package_zip()
 
     def query(self, sql_query: str) -> pd.DataFrame:
         """Run an analytical query and return a DataFrame."""
         with self._connect() as conn:
             return pd.read_sql_query(sql_query, con=conn)
+
+
+def build_powerbi_package_zip(target_zip_path: Optional[Path] = None) -> Path:
+    """Bundle the 7 Star-Schema tables, Excel model, DAX measures, mockup and pbip into a zip package."""
+    ensure_directories()
+    target = Path(target_zip_path or (POWERBI_DATA_DIR / "Ecommerce_PowerBI_Package.zip"))
+    powerbi_docs = PROJECT_ROOT / "powerbi"
+
+    files = [
+        (POWERBI_DATA_DIR / "Ecommerce_Star_Schema.xlsx", "Ecommerce_Star_Schema.xlsx"),
+        (POWERBI_DATA_DIR / "DimCustomer.csv", "tables/DimCustomer.csv"),
+        (POWERBI_DATA_DIR / "DimProduct.csv", "tables/DimProduct.csv"),
+        (POWERBI_DATA_DIR / "DimCategory.csv", "tables/DimCategory.csv"),
+        (POWERBI_DATA_DIR / "DimDate.csv", "tables/DimDate.csv"),
+        (POWERBI_DATA_DIR / "FactSales.csv", "tables/FactSales.csv"),
+        (POWERBI_DATA_DIR / "FactReviews.csv", "tables/FactReviews.csv"),
+        (POWERBI_DATA_DIR / "FactInteractions.csv", "tables/FactInteractions.csv"),
+        (powerbi_docs / "dax_measures.md", "dax_measures.md"),
+        (powerbi_docs / "powerbi_report_mockup.html", "powerbi_report_mockup.html"),
+        (powerbi_docs / "README.md", "README.md"),
+        (powerbi_docs / "Ecommerce_Customer_Intelligence.pbip", "Ecommerce_Customer_Intelligence.pbip"),
+    ]
+
+    with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as zf:
+        for src, arc in files:
+            if src.exists():
+                zf.write(src, arcname=arc)
+
+    logger.info(f"Built consolidated Power BI Package: {target} ({target.stat().st_size:,} bytes)")
+    return target
 
 
 def setup_database_and_export():

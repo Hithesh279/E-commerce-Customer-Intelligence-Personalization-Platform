@@ -42,6 +42,8 @@ from src.utils.config import (
     METRICS_FILE,
     MODELS_RECOMMENDATION_DIR,
     MODELS_SENTIMENT_DIR,
+    POWERBI_DATA_DIR,
+    PROJECT_ROOT,
     PROCESSED_DATA_DIR,
 )
 from src.utils.logging import get_logger
@@ -852,6 +854,36 @@ def generate_active_dashboard_reports(state: Optional[Dict[str, Any]] = None) ->
     return reports_suite
 
 
+def get_powerbi_model_data() -> bytes:
+    """Return bytes of data/powerbi_export/Ecommerce_Star_Schema.xlsx."""
+    xlsx_path = POWERBI_DATA_DIR / "Ecommerce_Star_Schema.xlsx"
+    if not xlsx_path.exists():
+        try:
+            from src.database.db_manager import DatabaseManager
+            DatabaseManager().export_powerbi_star_schema()
+        except Exception as e:
+            logger.warning(f"Could not auto-generate Power BI star schema: {e}")
+    return xlsx_path.read_bytes() if xlsx_path.exists() else b""
+
+
+def get_powerbi_package_data() -> bytes:
+    """Return bytes of data/powerbi_export/Ecommerce_PowerBI_Package.zip."""
+    zip_path = POWERBI_DATA_DIR / "Ecommerce_PowerBI_Package.zip"
+    if not zip_path.exists():
+        try:
+            from src.database.db_manager import build_powerbi_package_zip
+            build_powerbi_package_zip(zip_path)
+        except Exception as e:
+            logger.warning(f"Could not auto-bundle Power BI zip package: {e}")
+    return zip_path.read_bytes() if zip_path.exists() else b""
+
+
+def get_powerbi_mockup_data() -> bytes:
+    """Return bytes of powerbi/powerbi_report_mockup.html."""
+    html_path = PROJECT_ROOT / "powerbi" / "powerbi_report_mockup.html"
+    return html_path.read_bytes() if html_path.exists() else b""
+
+
 def render_download_panel(
     reports: Optional[Dict[str, Any]] = None,
     key_prefix: str = "dl",
@@ -889,7 +921,7 @@ def render_download_panel(
             mime="text/html",
             type="primary",
             key=f"{key_prefix}_btn_html",
-            use_container_width=True,
+            width="stretch",
         )
         cached_h = reports.get("b64_html") if reports else None
         if not cached_h:
@@ -922,7 +954,7 @@ def render_download_panel(
             file_name=excel_fn,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key=f"{key_prefix}_btn_excel",
-            use_container_width=True,
+            width="stretch",
         )
         cached_x = reports.get("b64_excel") if reports else None
         if not cached_x:
@@ -955,7 +987,7 @@ def render_download_panel(
             file_name=md_fn,
             mime="text/markdown",
             key=f"{key_prefix}_btn_md",
-            use_container_width=True,
+            width="stretch",
         )
         cached_m = reports.get("b64_md") if reports else None
         if not cached_m:
@@ -988,7 +1020,7 @@ def render_download_panel(
             file_name=csv_fn,
             mime="text/csv",
             key=f"{key_prefix}_btn_csv",
-            use_container_width=True,
+            width="stretch",
         )
         cached_c = reports.get("b64_csv") if reports else None
         if not cached_c:
@@ -1002,6 +1034,43 @@ def render_download_panel(
                 unsafe_allow_html=True,
             )
         st.caption("💾 *Complete analytical table.*")
+
+    st.markdown("---")
+    st.markdown("##### 📈 Direct Power BI Star-Schema & Data Warehouse Downloads")
+    pbi_c1, pbi_c2, pbi_c3 = st.columns(3)
+
+    with pbi_c1:
+        st.download_button(
+            label="📊 Power BI Star Schema (.xlsx)",
+            data=get_powerbi_model_data(),
+            file_name="Ecommerce_Star_Schema.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=f"{key_prefix}_btn_pbi_xlsx",
+            width="stretch",
+        )
+        st.caption("⚡ *Full 7-table Star Schema: Dimensions & Facts in 1 workbook.*")
+
+    with pbi_c2:
+        st.download_button(
+            label="📦 Power BI Full Package (.zip)",
+            data=get_powerbi_package_data(),
+            file_name="Ecommerce_PowerBI_Package.zip",
+            mime="application/zip",
+            key=f"{key_prefix}_btn_pbi_zip",
+            width="stretch",
+        )
+        st.caption("📦 *Includes 7 CSVs, Excel model, 16 DAX measures & PBIP project.*")
+
+    with pbi_c3:
+        st.download_button(
+            label="🖥️ Interactive Report (.html)",
+            data=get_powerbi_mockup_data(),
+            file_name="PowerBI_Interactive_Dashboard.html",
+            mime="text/html",
+            key=f"{key_prefix}_btn_pbi_html",
+            width="stretch",
+        )
+        st.caption("🌐 *Open interactive dashboard in browser without desktop app.*")
 
     if reports and reports.get("html_path") and "html_filename" in reports:
         st.info(f"💾 **Auto-Saved to Project Disk:** Reports are automatically saved to `exports/{reports['html_filename']}` — open directly in any browser or Excel.")

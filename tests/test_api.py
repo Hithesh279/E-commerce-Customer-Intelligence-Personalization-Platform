@@ -92,3 +92,18 @@ def test_post_review_analysis():
     assert "sentiment" in data
     assert "confidence" in data
     assert len(data["aspects"]) >= 1
+
+
+def test_get_powerbi_export_zip():
+    res = client.get("/analytics/powerbi/export?format=zip")
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "application/zip"
+    assert len(res.content) > 10000
+
+
+def test_get_powerbi_export_xlsx():
+    res = client.get("/analytics/powerbi/export?format=xlsx")
+    assert res.status_code == 200
+    assert "openxmlformats" in res.headers["content-type"]
+    assert len(res.content) > 10000
+

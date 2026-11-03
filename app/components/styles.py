@@ -209,7 +209,7 @@ def render_sidebar_status():
             mime="text/html",
             type="primary",
             key="sb_dl_html",
-            use_container_width=True,
+            width="stretch",
         )
         cached_h = get_cached_export("html", state=sb_state)
         if cached_h:
@@ -227,7 +227,7 @@ def render_sidebar_status():
             file_name=excel_fn,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key="sb_dl_excel",
-            use_container_width=True,
+            width="stretch",
         )
         cached_x = get_cached_export("excel", state=sb_state)
         if cached_x:
@@ -245,7 +245,7 @@ def render_sidebar_status():
             file_name=md_fn,
             mime="text/markdown",
             key="sb_dl_md",
-            use_container_width=True,
+            width="stretch",
         )
         csv_fn = get_active_export_filename("csv", state=sb_state)
         st.download_button(
@@ -254,7 +254,27 @@ def render_sidebar_status():
             file_name=csv_fn,
             mime="text/csv",
             key="sb_dl_csv",
-            use_container_width=True,
+            width="stretch",
+        )
+
+        st.markdown("---")
+        st.markdown("**📈 Power BI Exports:**")
+        from app.services.active_dataset_manager import get_powerbi_model_data, get_powerbi_package_data
+        st.download_button(
+            label="📊 Power BI Model (.xlsx)",
+            data=get_powerbi_model_data(),
+            file_name="Ecommerce_Star_Schema.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="sb_dl_pbi_xlsx",
+            width="stretch",
+        )
+        st.download_button(
+            label="📦 Power BI Full Package (.zip)",
+            data=get_powerbi_package_data(),
+            file_name="Ecommerce_PowerBI_Package.zip",
+            mime="application/zip",
+            key="sb_dl_pbi_zip",
+            width="stretch",
         )
 
     st.sidebar.markdown("---")

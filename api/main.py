@@ -71,6 +71,38 @@ def get_executive_kpis(service: APIService = Depends(get_service)) -> Dict[str, 
     return service.get_executive_kpis()
 
 
+@app.get("/analytics/powerbi/export", tags=["Analytics"], dependencies=protected, summary="Download Power BI Star-Schema Package")
+def download_powerbi_export(format: str = "zip"):
+    """
+    Download Power BI Star-Schema files directly.
+    - format='zip' (default): Full package containing all 7 Fact/Dim tables, Excel model, 16 DAX measures & PBIP.
+    - format='xlsx': Consolidated Power BI Star-Schema Excel workbook.
+    """
+    from fastapi.responses import FileResponse
+    from src.database.db_manager import build_powerbi_package_zip
+    from src.utils.config import POWERBI_DATA_DIR
+
+    if format == "xlsx":
+        xlsx_path = POWERBI_DATA_DIR / "Ecommerce_Star_Schema.xlsx"
+        if not xlsx_path.exists():
+            from src.database.db_manager import DatabaseManager
+            DatabaseManager().export_powerbi_star_schema()
+        return FileResponse(
+            path=str(xlsx_path),
+            filename="Ecommerce_Star_Schema.xlsx",
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    else:
+        zip_path = POWERBI_DATA_DIR / "Ecommerce_PowerBI_Package.zip"
+        if not zip_path.exists():
+            build_powerbi_package_zip(zip_path)
+        return FileResponse(
+            path=str(zip_path),
+            filename="Ecommerce_PowerBI_Package.zip",
+            media_type="application/zip",
+        )
+
+
 @app.get("/", tags=["Health"])
 def root():
     """Root status endpoint."""
