@@ -640,8 +640,10 @@ def get_active_export_data(
         reviews_data = state["reviews_data"]
         rfm_metrics = state["rfm_metrics"]
         rfm_df = state["rfm_df"]
+        bundles = state.get("bundles")
     else:
         df, label, schema_info, txn_data, reviews_data, rfm_df, rfm_metrics = _prepare_default_demo_export_inputs()
+        bundles = get_default_demo_bundles()
 
     exports_dir = Path(__file__).resolve().parent.parent.parent / "exports"
     filename = get_active_export_filename(export_format, state=state)
@@ -659,6 +661,7 @@ def get_active_export_data(
             reviews_data=reviews_data,
             rfm_metrics=rfm_metrics,
             rfm_df=rfm_df,
+            bundles=bundles,
         )
         if persist:
             try:
@@ -750,8 +753,10 @@ def generate_active_dashboard_reports(state: Optional[Dict[str, Any]] = None) ->
         reviews_data = state["reviews_data"]
         rfm_metrics = state["rfm_metrics"]
         rfm_df = state["rfm_df"]
+        bundles = state.get("bundles")
     else:
         df, label, schema_info, txn_data, reviews_data, rfm_df, rfm_metrics = _prepare_default_demo_export_inputs()
+        bundles = get_default_demo_bundles()
 
     html_report = generate_executive_html_report(
         df=df,
@@ -761,6 +766,7 @@ def generate_active_dashboard_reports(state: Optional[Dict[str, Any]] = None) ->
         reviews_data=reviews_data,
         rfm_metrics=rfm_metrics,
         rfm_df=rfm_df,
+        bundles=bundles,
     )
 
     excel_bytes = generate_excel_analytical_workbook(
