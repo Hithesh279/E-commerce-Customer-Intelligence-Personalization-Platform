@@ -94,8 +94,7 @@ def download_powerbi_export(format: str = "zip"):
         )
     else:
         zip_path = POWERBI_DATA_DIR / "Ecommerce_PowerBI_Package.zip"
-        if not zip_path.exists():
-            build_powerbi_package_zip(zip_path)
+        build_powerbi_package_zip(zip_path)
         return FileResponse(
             path=str(zip_path),
             filename="Ecommerce_PowerBI_Package.zip",

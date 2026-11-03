@@ -96,6 +96,11 @@ class DatabaseManager:
                     df.to_excel(writer, sheet_name=view_name, index=False)
                     logger.info(f"Exported Power BI view {view_name}: {out_file} ({len(df)} rows)")
         logger.info(f"Exported consolidated Power BI Star Schema workbook: {xlsx_path}")
+        try:
+            from src.database.powerbi_exporter import generate_complete_powerbi_pbip_project
+            generate_complete_powerbi_pbip_project(data_dir=POWERBI_DATA_DIR, output_dir=PROJECT_ROOT / "powerbi")
+        except Exception as e:
+            logger.warning(f"Could not auto-generate Power BI project files: {e}")
         build_powerbi_package_zip()
 
     def query(self, sql_query: str) -> pd.DataFrame:
@@ -109,6 +114,13 @@ def build_powerbi_package_zip(target_zip_path: Optional[Path] = None) -> Path:
     ensure_directories()
     target = Path(target_zip_path or (POWERBI_DATA_DIR / "Ecommerce_PowerBI_Package.zip"))
     powerbi_docs = PROJECT_ROOT / "powerbi"
+
+    # Always ensure the PBIP report and semantic model are fresh and populated
+    try:
+        from src.database.powerbi_exporter import generate_complete_powerbi_pbip_project
+        generate_complete_powerbi_pbip_project(data_dir=POWERBI_DATA_DIR, output_dir=powerbi_docs)
+    except Exception as e:
+        logger.warning(f"Could not refresh PBIP files before zip: {e}")
 
     files = [
         (POWERBI_DATA_DIR / "Ecommerce_Star_Schema.xlsx", "Ecommerce_Star_Schema.xlsx"),
@@ -129,6 +141,15 @@ def build_powerbi_package_zip(target_zip_path: Optional[Path] = None) -> Path:
         for src, arc in files:
             if src.exists():
                 zf.write(src, arcname=arc)
+
+        # Also bundle full PBIP project folders if present
+        for folder_name in ["Ecommerce_Customer_Intelligence.Report", "Ecommerce_Customer_Intelligence.SemanticModel"]:
+            folder_path = powerbi_docs / folder_name
+            if folder_path.exists():
+                for sub_item in folder_path.rglob("*"):
+                    if sub_item.is_file():
+                        arc_name = f"{folder_name}/{sub_item.relative_to(folder_path)}"
+                        zf.write(sub_item, arcname=arc_name)
 
     logger.info(f"Built consolidated Power BI Package: {target} ({target.stat().st_size:,} bytes)")
     return target

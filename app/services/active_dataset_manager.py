@@ -875,12 +875,11 @@ def get_powerbi_model_data() -> bytes:
 def get_powerbi_package_data() -> bytes:
     """Return bytes of data/powerbi_export/Ecommerce_PowerBI_Package.zip."""
     zip_path = POWERBI_DATA_DIR / "Ecommerce_PowerBI_Package.zip"
-    if not zip_path.exists():
-        try:
-            from src.database.db_manager import build_powerbi_package_zip
-            build_powerbi_package_zip(zip_path)
-        except Exception as e:
-            logger.warning(f"Could not auto-bundle Power BI zip package: {e}")
+    try:
+        from src.database.db_manager import build_powerbi_package_zip
+        build_powerbi_package_zip(zip_path)
+    except Exception as e:
+        logger.warning(f"Could not auto-bundle Power BI zip package: {e}")
     return zip_path.read_bytes() if zip_path.exists() else b""
 
 

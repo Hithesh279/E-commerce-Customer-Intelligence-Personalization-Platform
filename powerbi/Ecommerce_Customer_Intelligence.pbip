@@ -4,7 +4,7 @@
   "artifacts": [
     {
       "report": {
-        "path": "Ecommerce_Report.Report"
+        "path": "Ecommerce_Customer_Intelligence.Report"
       }
     }
   ],
